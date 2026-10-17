@@ -89,3 +89,140 @@ h1,h2,h3,.brand-panel h1,.topbar h1,.card-heading h2{font-family:'DM Sans',Arial
 .pet-profile-actions{display:flex;flex-wrap:wrap;gap:8px}
 
 @media(max-width:800px){.dashboard-grid{grid-template-columns:1fr}.pet-grid,.dashboard-pets .pet-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* ---------- Новые экраны: общие элементы ---------- */
+body.modal-open{overflow:hidden}
+.topbar-actions{display:flex;align-items:center;gap:12px}
+.user-chip{padding:0;border:0;background:transparent;cursor:pointer}
+.bell-button{position:relative;display:grid;place-items:center;width:44px;height:44px;border:1px solid var(--line);border-radius:12px;background:#fff;font-size:19px;box-shadow:var(--shadow)}
+.bell-button:hover{border-color:#a9d1b5}
+.bell-count{position:absolute;top:-6px;right:-6px;min-width:20px;height:20px;padding:0 5px;border-radius:10px;color:#fff;background:var(--red);font-size:11px;font-weight:700;line-height:20px;text-align:center}
+.notice-banner{display:block;width:100%;margin-bottom:16px;padding:14px 16px;border:1px solid #f0d9a8;border-radius:12px;color:#7a5412;background:#fff7e6;font-weight:600;text-align:left}
+.notice-banner:hover{background:#fff1d4}
+.quick-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+.quick-actions .outline-button{padding:9px 12px;font-size:13px}
+.empty-action{margin-top:14px}
+.pre-line{white-space:pre-line}
+.page-section{margin-top:22px}
+.subsection-title{margin:0 0 12px;color:var(--green);font-size:17px}
+.section-title h3{margin:0;font-size:18px}
+.section-title .subsection-title{margin:0}
+.field-hint{margin:6px 0 0;color:var(--muted);font-size:12px;line-height:1.45}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.text-button{cursor:pointer}
+.modal-lead{margin:-12px 0 20px}
+.danger-fill{background:var(--red)!important;box-shadow:none!important}
+.danger-fill:hover{background:#963c3c!important}
+
+/* Ошибки в формах */
+.field-error{display:block;margin-top:6px;color:var(--red);font-size:12px;font-weight:600}
+.has-error input,.has-error select,.has-error textarea{border-color:var(--red)!important;background:#fffafa!important}
+.has-error input:focus,.has-error select:focus,.has-error textarea:focus{box-shadow:0 0 0 3px #b4494922!important}
+.checkbox-row.has-error{flex-wrap:wrap;color:var(--red)}
+.checkbox-row .field-error{width:100%;margin-top:2px}
+
+/* Карточки событий */
+.event-list{display:grid;gap:11px}
+.event-card{display:flex;gap:14px;align-items:flex-start;padding:15px 16px;border:1px solid #edf1ed;border-radius:15px;background:#fff;box-shadow:var(--shadow)}
+.event-icon{display:grid;flex:none;place-items:center;width:42px;height:42px;border-radius:12px;background:var(--mint);font-size:20px}
+.event-body{flex:1;min-width:0}
+.event-body h3{margin:4px 0;font-size:17px;overflow-wrap:anywhere}
+.event-body p{margin:3px 0 0;color:var(--muted);font-size:13px;line-height:1.45;overflow-wrap:anywhere}
+.event-body .event-sub{color:#4b5a52}
+.event-text{white-space:pre-line}
+.event-body .event-repeat{color:var(--green);font-weight:600}
+.event-meta{display:flex;flex-wrap:wrap;gap:6px}
+.category-chip,.relative-chip{padding:3px 8px;border-radius:20px;font-size:11px;font-weight:700}
+.category-chip{color:var(--green);background:var(--mint)}
+.relative-chip{color:#7a5412;background:#fff1d4}
+.relative-chip.is-past{color:var(--muted);background:#eef1ee}
+.event-actions{display:flex;flex:none;gap:6px}
+.icon-button{display:grid;place-items:center;width:36px;height:36px;padding:0;border:1px solid var(--line);border-radius:9px;color:var(--green);background:#fff;font-size:15px}
+.icon-button:hover{border-color:#a9d1b5;background:var(--mint)}
+.icon-button.danger{border-color:#f3dada;color:#a53e3e;background:#fcecec}
+.event-birthday .event-icon{background:#fff1d4}
+.event-medication .event-icon{background:#eef0fb}
+.day-relative{font-size:14px;font-weight:500}
+
+/* Сводка карты здоровья */
+.summary-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;margin:6px 0 4px}
+.summary-tile{display:grid;gap:5px;padding:15px;border:1px solid #edf1ed;border-radius:14px;background:#fff;box-shadow:var(--shadow)}
+.summary-tile small{color:var(--muted);font-weight:600}
+.summary-tile strong{font-size:17px;overflow-wrap:anywhere}
+.summary-tile span{color:var(--muted);font-size:12px;line-height:1.4}
+.pet-profile .summary-tile{background:#fbfdfb;box-shadow:none}
+.chip-tabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px}
+.chip-tab{padding:8px 13px;border:1px solid var(--line);border-radius:20px;color:var(--green);background:#fff;font-size:13px;font-weight:600}
+.chip-tab.is-active{border-color:var(--green);color:#fff;background:var(--green)}
+.info-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-bottom:6px}
+.info-list div{display:grid;gap:4px;padding:12px 14px;border-radius:12px;background:var(--cream)}
+.info-list small{color:var(--muted);font-weight:600}
+.pet-profile hr{margin:24px 0;border:0;border-top:1px solid var(--line)}
+.pet-profile .avatar-large{overflow:hidden}
+.pet-profile .avatar-large img{width:100%;height:100%;object-fit:cover}
+.pet-card-body .pet-meta{display:block;margin:4px 0 0;color:var(--muted);font-size:13px;overflow-wrap:anywhere}
+
+/* Вес */
+.weight-card h3{margin:0 0 14px}
+.inline-form{display:grid;grid-template-columns:170px 150px 1fr auto;gap:12px;align-items:start}
+.inline-form .field{margin-bottom:0}
+.inline-form .primary-button{min-height:52px;margin-top:26px}
+.weight-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 16px;border:1px solid #edf1ed;border-radius:14px;background:#fff;box-shadow:var(--shadow)}
+.weight-row strong{font-size:18px}
+.weight-row p{margin:3px 0 0;color:var(--muted);font-size:13px}
+.weight-diff{margin-left:8px;padding:2px 7px;border-radius:12px;font-size:12px;font-weight:700}
+.weight-diff.up{color:#7a5412;background:#fff1d4}
+.weight-diff.down{color:#276549;background:#e6f5eb}
+
+/* Питание */
+.badge-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.badge{padding:4px 9px;border-radius:20px;color:var(--muted);background:#eef1ee;font-size:12px;font-weight:600}
+.badge.good{color:#276549;background:#e6f5eb}
+.badge.bad{color:#913f3f;background:#fcecec}
+.badge.warn{color:#7a5412;background:#fff1d4}
+.food-base{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+.food-column{padding:16px;border:1px solid #edf1ed;border-radius:15px;background:#fff;box-shadow:var(--shadow)}
+.food-column h4{margin:0 0 10px;font-size:15px}
+.food-column.good{border-top:4px solid #5b9377}
+.food-column.bad{border-top:4px solid var(--red)}
+.food-column.unknown{border-top:4px solid var(--line)}
+.food-column ul{display:grid;gap:10px;margin:0;padding:0;list-style:none}
+.food-column li{display:grid;gap:2px}
+.food-column li span{color:var(--muted);font-size:12px}
+.food-column li .reaction-line{color:#7a5412}
+.food-column p{margin:0;font-size:13px}
+.compact-filters{margin:0}
+.segmented{display:flex;flex-wrap:wrap;gap:6px}
+.segment input{position:absolute;opacity:0;pointer-events:none}
+.segment span{display:inline-block;padding:10px 13px;border:1px solid var(--line);border-radius:10px;color:var(--text);background:#fff;font-size:13px;font-weight:600;cursor:pointer;transition:.15s}
+.segment input:checked+span{border-color:var(--green);color:#fff;background:var(--green)}
+.segment input:focus-visible+span{box-shadow:0 0 0 3px #5b937744}
+.checkbox-grid{display:flex;flex-wrap:wrap;gap:4px 18px}
+.checkbox-grid .checkbox-row{margin:0;color:var(--text);font-size:13px}
+.form-details{margin:0 0 20px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:#fbfdfb}
+.form-details summary{color:var(--green);font-weight:700;cursor:pointer}
+.form-details[open] summary{margin-bottom:14px}
+
+/* Уведомления */
+.notification-list{display:grid;gap:10px;max-height:52vh;margin-bottom:16px;overflow:auto}
+.notification-item{display:flex;gap:12px;align-items:flex-start;padding:13px;border:1px solid var(--line);border-radius:13px}
+.notification-item>div{flex:1;min-width:0}
+.notification-item h3{margin:0 0 3px;font-size:15px}
+.notification-item p{margin:0 0 3px;color:var(--muted);font-size:13px}
+.notification-item small{color:var(--muted);font-size:12px}
+.notification-item .outline-button{flex:none;padding:7px 10px;font-size:12px}
+
+/* Видимое поле даты в фильтрах */
+.date-filter input{position:static;width:auto;height:auto;min-height:42px;padding:0 12px;border:1px solid var(--line);border-radius:10px;color:var(--text);background:#fff;opacity:1;pointer-events:auto}
+
+@media(max-width:800px){
+  .topbar{gap:12px}.topbar h1{font-size:28px}
+  .inline-form{grid-template-columns:1fr 1fr}.inline-form .field:nth-child(3),.inline-form .primary-button{grid-column:1/-1}.inline-form .primary-button{width:100%;margin-top:0}
+  .event-card{gap:10px;padding:13px}.event-icon{width:36px;height:36px;font-size:17px}
+  .event-actions{flex-direction:column}
+  .section-title{flex-wrap:wrap;gap:10px}
+  .filters select,.date-filter{flex:1 1 160px}.date-filter input{flex:1}
+  .modal{padding:10px}.modal-card{padding:22px 18px}
+  .notification-item{flex-wrap:wrap}.notification-item .outline-button{margin-left:54px}
+}
+@media(max-width:480px){.field-row{grid-template-columns:1fr;gap:0}.summary-grid{grid-template-columns:1fr 1fr}.pet-photo{height:120px}.topbar h1{font-size:24px}}

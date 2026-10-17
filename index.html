@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="PetCare — вход и регистрация">
+  <title>PetCare — авторизация</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="auth-layout">
+    <section class="brand-panel" aria-label="О PetCare">
+      <div class="brand-mark" aria-hidden="true">🐾</div>
+      <p class="eyebrow">PETCARE</p>
+      <h1>Забота о питомце<br>в одном месте</h1>
+      <p class="brand-description">Храните важные данные, процедуры и напоминания для ваших любимцев.</p>
+      <div class="decorative-paw paw-one" aria-hidden="true">🐾</div>
+      <div class="decorative-paw paw-two" aria-hidden="true">🐾</div>
+    </section>
+
+    <section class="form-panel">
+      <div class="auth-card">
+        <div class="mobile-brand" aria-hidden="true"><span>🐾</span> PETCARE</div>
+
+        <div id="auth-view">
+          <div class="card-heading">
+            <p class="eyebrow">ДОБРО ПОЖАЛОВАТЬ</p>
+            <h2 id="form-title">Войдите в аккаунт</h2>
+            <p id="form-subtitle" class="muted">Продолжите заботиться о своём питомце</p>
+          </div>
+
+          <div class="tabs" role="tablist" aria-label="Авторизация">
+            <button class="tab is-active" type="button" data-mode="login" role="tab" aria-selected="true">Войти</button>
+            <button class="tab" type="button" data-mode="register" role="tab" aria-selected="false">Регистрация</button>
+          </div>
+
+          <div id="message" class="message" role="alert" aria-live="polite"></div>
+
+          <form id="auth-form" novalidate>
+            <div id="name-field" class="field is-hidden">
+              <label for="name">Ваше имя</label>
+              <input id="name" name="name" type="text" autocomplete="name" placeholder="Например, Анна">
+              <span class="field-error" data-error-for="name"></span>
+            </div>
+
+            <div class="field">
+              <label for="email">Email</label>
+              <input id="email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required>
+              <span class="field-error" data-error-for="email"></span>
+            </div>
+
+            <div class="field">
+              <div class="label-row">
+                <label for="password">Пароль</label>
+                <button id="forgot-link" class="text-button" type="button">Забыли пароль?</button>
+              </div>
+              <div class="password-wrap">
+                <input id="password" name="password" type="password" autocomplete="current-password" placeholder="Не менее 6 символов" required>
+                <button class="password-toggle" type="button" aria-label="Показать пароль">Показать</button>
+              </div>
+              <span class="field-error" data-error-for="password"></span>
+            </div>
+
+            <label id="terms-field" class="checkbox-row is-hidden">
+              <input id="terms" type="checkbox">
+              <span>Я принимаю условия использования PetCare</span>
+            </label>
+
+            <button id="submit-button" class="primary-button" type="submit">Войти</button>
+          </form>
+
+          <p id="mock-hint" class="mock-hint">Демо-режим включён: можно войти с любыми корректными данными.</p>
+        </div>
+
+        <div id="verify-view" class="is-hidden">
+          <button id="back-to-auth" class="back-button" type="button">← Назад</button>
+          <div class="card-heading">
+            <p class="eyebrow">ПРОВЕРКА EMAIL</p>
+            <h2>Введите код</h2>
+            <p class="muted">Мы отправили 6-значный код на<br><strong id="verify-email"></strong></p>
+          </div>
+          <div id="verify-message" class="message" role="alert" aria-live="polite"></div>
+          <form id="verify-form" novalidate>
+            <div class="field">
+              <label for="code">Код подтверждения</label>
+              <input id="code" class="code-input" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" required>
+              <span class="field-error" data-error-for="code"></span>
+            </div>
+            <button id="verify-button" class="primary-button" type="submit">Подтвердить email</button>
+          </form>
+          <button id="resend-button" class="secondary-button" type="button">Отправить код ещё раз</button>
+          <p id="resend-status" class="resend-status" aria-live="polite"></p>
+          <p class="mock-hint">В демо-режиме используйте код <strong>123456</strong>.</p>
+        </div>
+
+        <div id="success-view" class="is-hidden success-view">
+          <div class="success-icon" aria-hidden="true">✓</div>
+          <p class="eyebrow">ГОТОВО</p>
+          <h2>Вы авторизованы</h2>
+          <p id="success-text" class="muted">Добро пожаловать в PetCare!</p>
+          <button id="logout-button" class="secondary-button" type="button">Выйти из демо</button>
+        </div>
+      </div>
+      <p class="copyright">© 2026 PetCare</p>
+    </section>
+  </main>
+  <script src="script.js"></script>
+</body>
+</html>

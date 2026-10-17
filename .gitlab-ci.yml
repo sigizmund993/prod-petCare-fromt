@@ -4,7 +4,7 @@ stages:
   - deploy
 
 variables:
-  APP_NAME: petcare
+  APP_NAME: petcare-frontend
   APP_FILES: "index.html style.css script.js petcare-icon.jpg Dockerfile"
 
 lint:
@@ -47,5 +47,5 @@ deploy:
       "cd ~/$APP_NAME &&
       sudo docker build -t $APP_NAME . &&
       (sudo docker rm -f $APP_NAME || true) &&
-      sudo docker run -d --name $APP_NAME --restart unless-stopped -p 80:80 $APP_NAME"
+      sudo docker run -d --name $APP_NAME --restart unless-stopped --network app_app_network -p 80:80 $APP_NAME"
     - echo "Задеплоено на http://$DEPLOY_HOST"

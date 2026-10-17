@@ -1,7 +1,7 @@
 (() => {
   'use strict';
   const USE_MOCK_API = new URLSearchParams(location.search).get('demo') === '1';
-  const API = 'http://139.100.200.207:8080';
+  const API = '/api';
   const MOCK_CODE = '123456';
   const SPECIES = ['Кошка', 'Собака', 'Птица', 'Грызун', 'Рептилия', 'Рыба', 'Другое'];
   const state = { user: null, pets: [], props: [], page: 'dashboard', authMode: 'login', verifyEmail: '', editingPet: null, editingProp: null, selectedPet: null, photoUrls: {}, procedureView: 'list', calendarMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1), calendarSelectedDate: '' };

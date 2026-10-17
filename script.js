@@ -1,152 +1,47 @@
 (() => {
   'use strict';
-
-  // Когда бэкенд будет готов, замените true на false.
-  const USE_MOCK_API = false;
-  const API_BASE_URL = 'http://139.100.200.207:8080';
+  const USE_MOCK_API = new URLSearchParams(location.search).get('demo') === '1';
+  const API = 'http://139.100.200.207:8080';
   const MOCK_CODE = '123456';
-
-  const $ = (selector) => document.querySelector(selector);
-  const elements = {
-    authView: $('#auth-view'), verifyView: $('#verify-view'), successView: $('#success-view'),
-    authForm: $('#auth-form'), verifyForm: $('#verify-form'), nameField: $('#name-field'), termsField: $('#terms-field'),
-    name: $('#name'), email: $('#email'), password: $('#password'), terms: $('#terms'), code: $('#code'),
-    title: $('#form-title'), subtitle: $('#form-subtitle'), submit: $('#submit-button'), message: $('#message'),
-    verifyMessage: $('#verify-message'), verifyEmail: $('#verify-email'), resend: $('#resend-button'), resendStatus: $('#resend-status'),
-    mockHint: $('#mock-hint'), successText: $('#success-text')
-  };
-  let mode = 'login';
-  let emailForVerification = '';
-  let resendTimer;
-
-  function showMessage(element, text, type = 'error') {
-    element.textContent = text;
-    element.className = `message is-visible ${type}`;
-  }
-
-  function clearMessage(element) { element.textContent = ''; element.className = 'message'; }
-
-  function setBusy(button, busy, busyText) {
-    if (!button.dataset.defaultText) button.dataset.defaultText = button.textContent;
-    button.disabled = busy;
-    button.textContent = busy ? busyText : button.dataset.defaultText;
-  }
-
-  function setFieldError(name, text = '') {
-    const field = document.querySelector(`[data-error-for="${name}"]`);
-    const input = document.getElementById(name);
-    if (field) field.textContent = text;
-    if (input) input.closest('.field')?.classList.toggle('has-error', Boolean(text));
-  }
-
-  function validateAuth() {
-    let valid = true;
-    const email = elements.email.value.trim();
-    const password = elements.password.value;
-    setFieldError('email'); setFieldError('password'); setFieldError('name');
-    if (!/^\S+@\S+\.\S+$/.test(email)) { setFieldError('email', 'Введите корректный email.'); valid = false; }
-    if (password.length < 6) { setFieldError('password', 'Пароль должен содержать минимум 6 символов.'); valid = false; }
-    if (mode === 'register' && elements.name.value.trim().length < 2) { setFieldError('name', 'Введите имя.'); valid = false; }
-    if (mode === 'register' && !elements.terms.checked) { showMessage(elements.message, 'Примите условия использования, чтобы продолжить.'); valid = false; }
-    return valid;
-  }
-
-  function setMode(nextMode) {
-    mode = nextMode;
-    document.querySelectorAll('.tab').forEach((tab) => {
-      const active = tab.dataset.mode === mode;
-      tab.classList.toggle('is-active', active); tab.setAttribute('aria-selected', String(active));
-    });
-    const register = mode === 'register';
-    elements.nameField.classList.toggle('is-hidden', !register); elements.termsField.classList.toggle('is-hidden', !register);
-    $('#forgot-link').classList.toggle('is-hidden', register);
-    elements.title.textContent = register ? 'Создайте аккаунт' : 'Войдите в аккаунт';
-    elements.subtitle.textContent = register ? 'Начните заботиться о питомце ещё удобнее' : 'Продолжите заботиться о своём питомце';
-    elements.submit.textContent = register ? 'Зарегистрироваться' : 'Войти';
-    elements.mockHint.textContent = USE_MOCK_API ? 'Демо-режим включён: после регистрации используйте код 123456.' : 'Данные передаются на сервер PetCare.';
-    clearMessage(elements.message);
-    ['name', 'email', 'password'].forEach((name) => setFieldError(name));
-  }
-
-  async function api(path, { method = 'GET', body } = {}) {
-    const token = localStorage.getItem('petcare_access_token');
-    const response = await fetch(API_BASE_URL + path, {
-      method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: body ? JSON.stringify(body) : undefined
-    });
-    if (response.status === 204) return null;
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw { status: response.status, detail: data.detail };
-    return data;
-  }
-
-  function mockApi(path, { body } = {}) {
-    return new Promise((resolve, reject) => setTimeout(() => {
-      const stored = JSON.parse(localStorage.getItem('petcare_mock_users') || '{}');
-      if (path === '/user/add') {
-        if (stored[body.email]) return reject({ status: 409, detail: 'Email already registered' });
-        stored[body.email] = { ...body, verified: false };
-        localStorage.setItem('petcare_mock_users', JSON.stringify(stored));
-        return resolve({ id: Date.now(), email: body.email, name: body.name, email_verified: false });
-      }
-      if (path === '/user/login') {
-        const user = stored[body.email];
-        if (user && !user.verified) return reject({ status: 403, detail: 'Email not verified' });
-        if (user && user.passwd !== body.passwd) return reject({ status: 401, detail: 'Invalid credentials' });
-        return resolve({ access_token: `mock-token-${Date.now()}`, token_type: 'bearer', name: user?.name || 'Пользователь' });
-      }
-      if (path === '/user/verify') {
-        if (body.code !== MOCK_CODE) return reject({ status: 400, detail: 'Wrong or expired code' });
-        if (stored[body.email]) { stored[body.email].verified = true; localStorage.setItem('petcare_mock_users', JSON.stringify(stored)); }
-        return resolve({ access_token: `mock-token-${Date.now()}`, token_type: 'bearer', name: stored[body.email]?.name || 'Пользователь' });
-      }
-      if (path === '/user/verify/resend') return resolve(null);
-      return reject({ status: 404, detail: 'Not found' });
-    }, 450));
-  }
-
-  function request(path, options) { return USE_MOCK_API ? mockApi(path, options) : api(path, options); }
-
-  function errorText(error) {
-    if (Array.isArray(error.detail)) return 'Проверьте заполнение полей.';
-    const known = { 'Email already registered': 'Этот email уже зарегистрирован.', 'Email not verified': 'Email ещё не подтверждён.', 'Invalid credentials': 'Неверный email или пароль.', 'Wrong or expired code': 'Код неверный или истёк.' };
-    return known[error.detail] || error.detail || 'Не удалось выполнить запрос. Попробуйте ещё раз.';
-  }
-
-  function openVerification(email) {
-    emailForVerification = email; elements.verifyEmail.textContent = email; elements.authView.classList.add('is-hidden'); elements.verifyView.classList.remove('is-hidden'); elements.code.focus();
-  }
-
-  function finishAuth(token, name) {
-    localStorage.setItem('petcare_access_token', token); elements.authView.classList.add('is-hidden'); elements.verifyView.classList.add('is-hidden'); elements.successView.classList.remove('is-hidden'); elements.successText.textContent = `Добро пожаловать${name ? `, ${name}` : ''}! Вы успешно вошли в PetCare.`;
-  }
-
-  elements.authForm.addEventListener('submit', async (event) => {
-    event.preventDefault(); clearMessage(elements.message); if (!validateAuth()) return;
-    setBusy(elements.submit, true, mode === 'register' ? 'Регистрация…' : 'Вход…');
-    try {
-      const email = elements.email.value.trim().toLowerCase();
-      if (mode === 'register') { await request('/user/add', { method: 'POST', body: { email, passwd: elements.password.value, name: elements.name.value.trim() } }); openVerification(email); showMessage(elements.verifyMessage, 'Код подтверждения отправлен на вашу почту.', 'success'); }
-      else { const result = await request('/user/login', { method: 'POST', body: { email, passwd: elements.password.value } }); finishAuth(result.access_token, result.name); }
-    } catch (error) { if (error.status === 403 && error.detail === 'Email not verified') { openVerification(elements.email.value.trim().toLowerCase()); showMessage(elements.verifyMessage, 'Подтвердите email кодом из письма.'); } else showMessage(elements.message, errorText(error)); }
-    finally { setBusy(elements.submit, false); }
-  });
-
-  elements.verifyForm.addEventListener('submit', async (event) => {
-    event.preventDefault(); clearMessage(elements.verifyMessage); setFieldError('code');
-    if (!/^\d{6}$/.test(elements.code.value.trim())) { setFieldError('code', 'Введите 6 цифр.'); return; }
-    setBusy($('#verify-button'), true, 'Проверка…');
-    try { const result = await request('/user/verify', { method: 'POST', body: { email: emailForVerification, code: elements.code.value.trim() } }); finishAuth(result.access_token, result.name); }
-    catch (error) { showMessage(elements.verifyMessage, errorText(error)); }
-    finally { setBusy($('#verify-button'), false); }
-  });
-
-  elements.resend.addEventListener('click', async () => { elements.resend.disabled = true; elements.resendStatus.textContent = 'Отправляем код…'; try { await request('/user/verify/resend', { method: 'POST', body: { email: emailForVerification } }); let seconds = 60; elements.resendStatus.textContent = `Если адрес зарегистрирован, код отправлен. Повторить через ${seconds} с.`; resendTimer = setInterval(() => { seconds -= 1; elements.resendStatus.textContent = seconds ? `Повторить через ${seconds} с.` : 'Можно отправить код ещё раз.'; if (!seconds) { clearInterval(resendTimer); elements.resend.disabled = false; } }, 1000); } catch (error) { elements.resendStatus.textContent = errorText(error); elements.resend.disabled = false; } });
-  document.querySelectorAll('.tab').forEach((tab) => tab.addEventListener('click', () => setMode(tab.dataset.mode)));
-  $('.password-toggle').addEventListener('click', (event) => { const visible = elements.password.type === 'text'; elements.password.type = visible ? 'password' : 'text'; event.currentTarget.textContent = visible ? 'Показать' : 'Скрыть'; event.currentTarget.setAttribute('aria-label', visible ? 'Показать пароль' : 'Скрыть пароль'); });
-  $('#back-to-auth').addEventListener('click', () => { elements.verifyView.classList.add('is-hidden'); elements.authView.classList.remove('is-hidden'); });
-  $('#logout-button').addEventListener('click', () => { localStorage.removeItem('petcare_access_token'); elements.successView.classList.add('is-hidden'); elements.authView.classList.remove('is-hidden'); });
-  $('#forgot-link').addEventListener('click', () => showMessage(elements.message, 'Восстановление пароля будет доступно после подключения бэкенда.', 'success'));
-  elements.code.addEventListener('input', () => { elements.code.value = elements.code.value.replace(/\D/g, '').slice(0, 6); });
-  setMode('login');
+  const state = { user: null, pets: [], props: [], page: 'dashboard', authMode: 'login', verifyEmail: '', editingPet: null, editingProp: null };
+  const $ = (s) => document.querySelector(s);
+  const $$ = (s) => [...document.querySelectorAll(s)];
+  const el = { authScreen: $('#auth-screen'), appScreen: $('#app-screen'), authForm: $('#auth-form'), authMessage: $('#auth-message'), authName: $('#auth-name'), authEmail: $('#auth-email'), authPassword: $('#auth-password'), nameField: $('#name-field'), termsField: $('#terms-field'), terms: $('#terms'), authSubmit: $('#auth-submit'), authHint: $('#auth-hint'), verifyView: $('#verify-view'), authView: $('#auth-view'), verifyForm: $('#verify-form'), verifyEmail: $('#verify-email'), verifyCode: $('#verify-code'), verifyMessage: $('#verify-message'), resend: $('#resend-button'), resendStatus: $('#resend-status'), pageTitle: $('#page-title'), pageContent: $('#page-content'), appMessage: $('#app-message'), modal: $('#modal'), modalContent: $('#modal-content'), toast: $('#toast') };
+  function notify(text, type = 'success') { el.toast.textContent = text; el.toast.style.background = type === 'error' ? '#a53e3e' : 'var(--green)'; el.toast.classList.add('show'); setTimeout(() => el.toast.classList.remove('show'), 3200); }
+  function message(node, text, type = 'error') { node.textContent = text; node.className = `message is-visible ${type}`; }
+  function clearMessage(node) { node.textContent = ''; node.className = 'message'; }
+  function busy(button, value, text) { if (!button.dataset.default) button.dataset.default = button.textContent; button.disabled = value; button.textContent = value ? text : button.dataset.default; }
+  function escapeHtml(value = '') { return String(value).replace(/[&<>'"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#039;', '"': '&quot;' }[c])); }
+  function formatDate(value) { if (!value) return 'Дата не указана'; return new Date(value).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }
+  function apiError(error) { if (error?.message === 'NETWORK') return 'Не удалось подключиться к API. Проверьте CORS и доступность сервера.'; if (error?.status === 500) return 'Ошибка 500 на сервере. Бэкенд получил запрос, но не смог обработать его.'; if (Array.isArray(error?.detail)) return error.detail.map((x) => x.msg).join(' '); return error?.detail || `Ошибка API ${error?.status || ''}`; }
+  async function api(path, options = {}) { let response; try { response = await fetch(API + path, { method: options.method || 'GET', headers: { ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }), ...(localStorage.getItem('petcare_access_token') ? { Authorization: `Bearer ${localStorage.getItem('petcare_access_token')}` } : {}) }, body: options.body instanceof FormData ? options.body : options.body ? JSON.stringify(options.body) : undefined }); } catch (e) { throw { message: 'NETWORK' }; } if (response.status === 204) return null; const text = await response.text(); let data = {}; try { data = text ? JSON.parse(text) : {}; } catch { data = { detail: text }; } if (!response.ok) throw { status: response.status, detail: data.detail }; return data; }
+  function mockStore() { return JSON.parse(localStorage.getItem('petcare_mock_store') || '{"users":{},"pets":[],"props":[]}'); }
+  function saveMock(store) { localStorage.setItem('petcare_mock_store', JSON.stringify(store)); }
+  function mockApi(path, options = {}) { return new Promise((resolve, reject) => setTimeout(() => { const store = mockStore(); const body = options.body || {}; const email = body.email || state.user?.email; if (path === '/user/add') { if (store.users[email]) return reject({ status: 409, detail: 'Email already registered' }); store.users[email] = { email, passwd: body.passwd, name: body.name, verified: false, id: Object.keys(store.users).length + 1 }; saveMock(store); return resolve(store.users[email]); } if (path === '/user/login') { const user = store.users[email]; if (!user || user.passwd !== body.passwd) return reject({ status: 401, detail: 'Неверный email или пароль' }); if (!user.verified) return reject({ status: 403, detail: 'Email not verified' }); return resolve({ access_token: `mock-${email}`, name: user.name }); } if (path === '/user/verify') { if (body.code !== MOCK_CODE) return reject({ status: 400, detail: 'Неверный код подтверждения' }); if (store.users[email]) { store.users[email].verified = true; saveMock(store); } return resolve({ access_token: `mock-${email}`, name: store.users[email]?.name }); } if (path === '/user/verify/resend') return resolve(null); if (path === '/user/me') return resolve(store.users[email] || { id: 1, email, name: 'Пользователь', phone_number: null, email_verified: true }); if (path === '/pet/list') return resolve(store.pets); if (path === '/prop/list') return resolve(store.props); if (path === '/pet/add') { const pet = { ...body, id: Date.now(), has_picture: false, own_ids: body.own_ids || [], prop_ids: body.prop_ids || [] }; store.pets.push(pet); saveMock(store); return resolve(pet); } if (path.startsWith('/pet/edit')) { const id = Number(new URLSearchParams(path.split('?')[1]).get('pet_id')); const index = store.pets.findIndex((p) => p.id === id); store.pets[index] = { ...store.pets[index], ...body }; saveMock(store); return resolve(store.pets[index]); } if (path.startsWith('/pet/del')) { const id = Number(new URLSearchParams(path.split('?')[1]).get('pet_id')); store.pets = store.pets.filter((p) => p.id !== id); saveMock(store); return resolve(null); } if (path === '/prop/add') { const prop = { ...body, id: Date.now(), own_ids: body.own_ids || [] }; store.props.push(prop); saveMock(store); return resolve(prop); } if (path.startsWith('/prop/edit')) { const id = Number(new URLSearchParams(path.split('?')[1]).get('prop_id')); const index = store.props.findIndex((p) => p.id === id); store.props[index] = { ...store.props[index], ...body }; saveMock(store); return resolve(store.props[index]); } if (path.startsWith('/prop/del')) { const id = Number(new URLSearchParams(path.split('?')[1]).get('prop_id')); store.props = store.props.filter((p) => p.id !== id); saveMock(store); return resolve(null); } return resolve(null); }, 180)); }
+  function request(path, options = {}) { return USE_MOCK_API ? mockApi(path, options) : api(path, options); }
+  function setAuthMode(mode) { state.authMode = mode; const register = mode === 'register'; $$('.tab').forEach((tab) => tab.classList.toggle('is-active', tab.dataset.mode === mode)); el.nameField.classList.toggle('is-hidden', !register); el.termsField.classList.toggle('is-hidden', !register); $('#forgot-link').classList.toggle('is-hidden', register); $('#form-title').textContent = register ? 'Создайте аккаунт' : 'Войдите в аккаунт'; $('#form-subtitle').textContent = register ? 'Начните заботиться о питомце ещё удобнее' : 'Продолжите заботиться о своём питомце'; el.authSubmit.textContent = register ? 'Зарегистрироваться' : 'Войти'; el.authHint.textContent = USE_MOCK_API ? 'Демо-режим: код подтверждения 123456.' : 'Данные передаются на сервер PetCare.'; clearMessage(el.authMessage); }
+  function showVerify(email) { state.verifyEmail = email; el.verifyEmail.textContent = email; el.authView.classList.add('is-hidden'); el.verifyView.classList.remove('is-hidden'); el.verifyCode.focus(); }
+  async function afterAuth(token, name) { localStorage.setItem('petcare_access_token', token); state.user = { name: name || 'Пользователь', email: state.verifyEmail || el.authEmail.value }; el.authScreen.classList.add('is-hidden'); el.appScreen.classList.remove('is-hidden'); $('#user-name').textContent = state.user.name; $('#user-initial').textContent = state.user.name[0]?.toUpperCase() || 'П'; await loadData(); renderPage(); }
+  el.authForm.addEventListener('submit', async (event) => { event.preventDefault(); clearMessage(el.authMessage); const email = el.authEmail.value.trim().toLowerCase(); const password = el.authPassword.value; if (!/^\S+@\S+\.\S+$/.test(email) || password.length < 6 || (state.authMode === 'register' && el.authName.value.trim().length < 2) || (state.authMode === 'register' && !el.terms.checked)) { message(el.authMessage, 'Проверьте email, имя, пароль и согласие с условиями.'); return; } busy(el.authSubmit, true, 'Подождите…'); try { if (state.authMode === 'register') { await request('/user/add', { method: 'POST', body: { email, passwd: password, name: el.authName.value.trim() } }); showVerify(email); message(el.verifyMessage, 'Код отправлен на вашу почту.', 'success'); } else { const result = await request('/user/login', { method: 'POST', body: { email, passwd: password } }); await afterAuth(result.access_token, result.name); } } catch (error) { if (error.status === 403) { showVerify(email); message(el.verifyMessage, 'Сначала подтвердите email кодом из письма.'); } else message(el.authMessage, apiError(error)); } finally { busy(el.authSubmit, false); } });
+  el.verifyForm.addEventListener('submit', async (event) => { event.preventDefault(); if (!/^\d{6}$/.test(el.verifyCode.value)) { message(el.verifyMessage, 'Введите 6-значный код.'); return; } try { const result = await request('/user/verify', { method: 'POST', body: { email: state.verifyEmail, code: el.verifyCode.value } }); await afterAuth(result.access_token, result.name); } catch (error) { message(el.verifyMessage, apiError(error)); } });
+  el.resend.addEventListener('click', async () => { el.resend.disabled = true; try { await request('/user/verify/resend', { method: 'POST', body: { email: state.verifyEmail } }); let seconds = 60; el.resendStatus.textContent = `Код отправлен. Повторить через ${seconds} с.`; const timer = setInterval(() => { seconds--; el.resendStatus.textContent = seconds ? `Повторить через ${seconds} с.` : 'Можно отправить код ещё раз.'; if (!seconds) { clearInterval(timer); el.resend.disabled = false; } }, 1000); } catch (error) { el.resendStatus.textContent = apiError(error); el.resend.disabled = false; } });
+  async function loadData() { try { state.pets = await request('/pet/list'); state.props = await request('/prop/list'); } catch (error) { state.pets = []; state.props = []; message(el.appMessage, apiError(error)); } }
+  function petName(id) { return state.pets.find((pet) => pet.id === id)?.name || 'Все питомцы'; }
+  function renderPage() { const titles = { dashboard: 'Обзор', pets: 'Мои питомцы', procedures: 'Процедуры и напоминания', profile: 'Профиль' }; el.pageTitle.textContent = titles[state.page]; $$('.nav-link').forEach((link) => link.classList.toggle('is-active', link.dataset.page === state.page)); if (state.page === 'dashboard') renderDashboard(); if (state.page === 'pets') renderPets(); if (state.page === 'procedures') renderProps(); if (state.page === 'profile') renderProfile(); }
+  function renderDashboard() { const next = [...state.props].sort((a, b) => new Date(a.date) - new Date(b.date)).slice(0, 4); el.pageContent.innerHTML = `<div class="stat-grid"><div class="card stat-card"><small>Питомцев</small><strong>${state.pets.length}</strong></div><div class="card stat-card"><small>Процедур</small><strong>${state.props.length}</strong></div><div class="card stat-card"><small>Ближайшая дата</small><strong>${next[0] ? new Date(next[0].date).getDate() : '—'}</strong></div></div><div class="dashboard-grid"><section><div class="section-title"><h2>Ваши питомцы</h2><button class="outline-button" data-action="add-pet">+ Добавить</button></div>${petGrid(3)}</section><section><div class="section-title"><h2>Ближайшие процедуры</h2><button class="outline-button" data-page="procedures">Все</button></div>${procedureList(next)}</section></div>`; bindDynamic(); }
+  function petGrid(limit) { if (!state.pets.length) return '<div class="empty-state">Питомцев пока нет.<br>Добавьте первого любимца.</div>'; return `<div class="pet-grid">${state.pets.slice(0, limit).map(petCard).join('')}</div>`; }
+  function petCard(pet) { return `<article class="pet-card"><div class="pet-photo">${pet.has_picture ? `<img src="${API}/pets/${pet.id}/photo" alt="${escapeHtml(pet.name)}">` : '🐾'}</div><div class="pet-card-body"><h3>${escapeHtml(pet.name)}</h3><p>${escapeHtml([pet.type, pet.breed].filter(Boolean).join(' • ') || 'Вид и порода не указаны')}</p><div class="card-actions"><button class="outline-button" data-action="edit-pet" data-id="${pet.id}">Изменить</button><button class="danger-button" data-action="delete-pet" data-id="${pet.id}">Удалить</button></div></div></article>`; }
+  function renderPets() { el.pageContent.innerHTML = `<div class="section-title"><h2>Все питомцы</h2><button class="primary-button" style="width:auto;padding:0 18px" data-action="add-pet">+ Добавить питомца</button></div>${petGrid()}`; bindDynamic(); }
+  function procedureList(items = state.props) { if (!items.length) return '<div class="empty-state">Процедур пока нет.</div>'; return `<div class="procedure-list">${items.map((prop) => `<article class="procedure-card"><div><h3>${escapeHtml(prop.name)}</h3><p>${escapeHtml(prop.msg || prop.text || petName(prop.pet_id) || 'Напоминание PetCare')}</p></div><div class="date-badge">${formatDate(prop.date)}<div class="card-actions"><button class="outline-button" data-action="edit-prop" data-id="${prop.id}">Изм.</button><button class="danger-button" data-action="delete-prop" data-id="${prop.id}">×</button></div></div></article>`).join('')}</div>`; }
+  function renderProps() { el.pageContent.innerHTML = `<div class="section-title"><h2>Все процедуры</h2><button class="primary-button" style="width:auto;padding:0 18px" data-action="add-prop">+ Добавить запись</button></div>${procedureList()}`; bindDynamic(); }
+  function renderProfile() { el.pageContent.innerHTML = `<div class="card"><h2>Данные профиля</h2><p class="muted">Здесь можно будет изменить данные пользователя через PUT /user/edit.</p><div class="field"><label>Email</label><input value="${escapeHtml(state.user?.email || '')}" disabled></div><div class="field"><label>Имя</label><input value="${escapeHtml(state.user?.name || '')}" disabled></div><button class="outline-button" disabled>Редактирование профиля скоро будет доступно</button></div>`; }
+  function openModal(content) { el.modalContent.innerHTML = content; el.modal.classList.remove('is-hidden'); }
+  function closeModal() { el.modal.classList.add('is-hidden'); el.modalContent.innerHTML = ''; }
+  function petForm(pet = {}) { state.editingPet = pet.id || null; openModal(`<h2>${pet.id ? 'Редактировать питомца' : 'Добавить питомца'}</h2><form id="pet-form"><div class="field"><label>Имя *</label><input name="name" required value="${escapeHtml(pet.name || '')}"></div><div class="field"><label>Вид</label><input name="type" value="${escapeHtml(pet.type || '')}" placeholder="Кошка, собака…"></div><div class="field"><label>Порода</label><input name="breed" value="${escapeHtml(pet.breed || '')}"></div><div class="form-actions"><button type="button" class="secondary-button" data-close-modal>Отмена</button><button class="primary-button" type="submit">Сохранить</button></div></form>`); $('#pet-form').addEventListener('submit', async (event) => { event.preventDefault(); const form = new FormData(event.target); const body = { name: form.get('name'), type: form.get('type') || null, breed: form.get('breed') || null, own_ids: pet.own_ids || [], prop_ids: pet.prop_ids || [] }; try { if (state.editingPet) await request(`/pet/edit?pet_id=${state.editingPet}`, { method: 'PUT', body }); else await request('/pet/add', { method: 'POST', body }); closeModal(); await loadData(); renderPage(); notify('Питомец сохранён'); } catch (error) { notify(apiError(error), 'error'); } }); }
+  function propForm(prop = {}) { state.editingProp = prop.id || null; openModal(`<h2>${prop.id ? 'Редактировать процедуру' : 'Добавить процедуру'}</h2><form id="prop-form"><div class="field"><label>Название *</label><input name="name" required value="${escapeHtml(prop.name || '')}"></div><div class="field"><label>Дата и время *</label><input name="date" type="datetime-local" required value="${prop.date ? new Date(prop.date).toISOString().slice(0,16) : ''}"></div><div class="field"><label>Сообщение</label><textarea name="msg" placeholder="Например, не забыть паспорт">${escapeHtml(prop.msg || '')}</textarea></div><label class="checkbox-row"><input name="rep" type="checkbox" ${prop.rep ? 'checked' : ''}> Повторяющаяся процедура</label><div class="form-actions"><button type="button" class="secondary-button" data-close-modal>Отмена</button><button class="primary-button" type="submit">Сохранить</button></div></form>`); $('#prop-form').addEventListener('submit', async (event) => { event.preventDefault(); const form = new FormData(event.target); const body = { name: form.get('name'), date: new Date(form.get('date')).toISOString(), msg: form.get('msg') || null, text: prop.text || null, rep: form.get('rep') === 'on', own_ids: prop.own_ids || [] }; try { if (state.editingProp) await request(`/prop/edit?prop_id=${state.editingProp}`, { method: 'PUT', body }); else await request('/prop/add', { method: 'POST', body }); closeModal(); await loadData(); renderPage(); notify('Процедура сохранена'); } catch (error) { notify(apiError(error), 'error'); } }); }
+  async function deleteItem(type, id) { if (!confirm('Удалить эту запись?')) return; try { await request(type === 'pet' ? `/pet/del?pet_id=${id}` : `/prop/del?prop_id=${id}`, { method: 'DELETE' }); await loadData(); renderPage(); notify('Запись удалена'); } catch (error) { notify(apiError(error), 'error'); } }
+  function bindDynamic() { $$('[data-action="add-pet"]').forEach((b) => b.addEventListener('click', () => petForm())); $$('[data-action="add-prop"]').forEach((b) => b.addEventListener('click', () => propForm())); $$('[data-action="edit-pet"]').forEach((b) => b.addEventListener('click', () => petForm(state.pets.find((p) => p.id === Number(b.dataset.id))))); $$('[data-action="edit-prop"]').forEach((b) => b.addEventListener('click', () => propForm(state.props.find((p) => p.id === Number(b.dataset.id))))); $$('[data-action="delete-pet"]').forEach((b) => b.addEventListener('click', () => deleteItem('pet', b.dataset.id))); $$('[data-action="delete-prop"]').forEach((b) => b.addEventListener('click', () => deleteItem('prop', b.dataset.id))); $$('[data-page]').forEach((b) => b.addEventListener('click', () => { state.page = b.dataset.page; renderPage(); })); $$('[data-close-modal]').forEach((b) => b.addEventListener('click', closeModal)); }
+  $$('.tab').forEach((tab) => tab.addEventListener('click', () => setAuthMode(tab.dataset.mode))); $('.password-toggle').addEventListener('click', (event) => { const visible = el.authPassword.type === 'text'; el.authPassword.type = visible ? 'password' : 'text'; event.currentTarget.textContent = visible ? 'Показать' : 'Скрыть'; }); $('#back-to-auth').addEventListener('click', () => { el.verifyView.classList.add('is-hidden'); el.authView.classList.remove('is-hidden'); }); $('#logout-button').addEventListener('click', () => { localStorage.removeItem('petcare_access_token'); location.reload(); }); $('#forgot-link').addEventListener('click', () => message(el.authMessage, 'Восстановление пароля будет добавлено позже.', 'success')); el.verifyCode.addEventListener('input', () => { el.verifyCode.value = el.verifyCode.value.replace(/\D/g, '').slice(0, 6); }); document.addEventListener('click', (event) => { if (event.target.closest('[data-close-modal]')) closeModal(); });
+  async function restoreSession() { const token = localStorage.getItem('petcare_access_token'); if (!token) return setAuthMode('login'); try { const user = USE_MOCK_API ? mockStore().users[token.replace('mock-', '')] : await api('/user/me'); if (!user) throw new Error('session'); state.user = { name: user.name || 'Пользователь', email: user.email }; el.authScreen.classList.add('is-hidden'); el.appScreen.classList.remove('is-hidden'); $('#user-name').textContent = state.user.name; $('#user-initial').textContent = state.user.name[0]?.toUpperCase() || 'П'; await loadData(); renderPage(); } catch { localStorage.removeItem('petcare_access_token'); setAuthMode('login'); } }
+  restoreSession();
 })();

@@ -1,7 +1,12 @@
 (() => {
   'use strict';
   const USE_MOCK_API = new URLSearchParams(location.search).get('demo') === '1';
-  const API = '/api';
+  // Локально (Live Server и т.п. на localhost) прокси /api нет — ходим в бэкенд напрямую, CORS для localhost разрешён.
+  // На сервере запросы идут через nginx (/api → бэкенд), см. nginx.conf
+  const IS_FILE = location.protocol === 'file:';
+  const IS_LOCAL = IS_FILE || ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+  const API = IS_LOCAL ? 'http://139.100.200.207:8080' : '/api';
+  const RUN_HINT = 'Откройте сайт через локальный сервер по адресу localhost или 127.0.0.1 (например, Live Server в VS Code) — так бэкенд разрешает запросы. Инструкция в README.md.';
   const MOCK_CODE = '123456';
   const TOKEN_KEY = 'petcare_access_token';
   const SPECIES = ['Кошка', 'Собака', 'Птица', 'Грызун', 'Рептилия', 'Рыба', 'Другое'];
@@ -26,6 +31,7 @@
   const POLL_INTERVAL = 45000;
   const ERROR_TEXT = {
     'Invalid credentials': 'Неверный email или пароль.',
+    'Wrong email or password': 'Неверный email или пароль.',
     'Email not verified': 'Email ещё не подтверждён.',
     'Email already registered': 'Этот email уже зарегистрирован. Попробуйте войти.',
     'Phone number already registered': 'Этот номер телефона уже используется другим аккаунтом.',
@@ -78,7 +84,9 @@
   // ---------- Ошибки и валидация форм ----------
   function translateValidation(item) { const msg = String(item?.msg || ''); if (/future/i.test(msg)) return 'Дата не может быть в будущем.'; if (item?.type === 'missing') return 'Обязательное поле.'; if (/date|datetime/i.test(item?.type || '')) return 'Укажите корректную дату.'; return 'Проверьте значение поля.'; }
   function apiError(error) {
-    if (error?.message === 'NETWORK') return 'Не удалось подключиться к серверу. Проверьте интернет и попробуйте ещё раз.';
+    if (error?.message === 'NETWORK') return IS_FILE ? `Сайт открыт как файл, и браузер блокирует запросы к серверу. ${RUN_HINT}` : 'Не удалось подключиться к серверу. Проверьте интернет и попробуйте ещё раз.';
+    // 405 приходит, когда сайт раздаёт обычный статический сервер без прокси /api (например, Live Server по IP сети)
+    if (error?.status === 405) return `Сервер не принимает запросы по этому адресу. ${RUN_HINT}`;
     if (error?.status === 413) return 'Файл слишком большой — максимум 5 МБ.';
     if (error?.status >= 500) return 'Сервер временно недоступен. Попробуйте чуть позже.';
     if (Array.isArray(error?.detail)) return error.detail.map(translateValidation).join(' ');
@@ -750,4 +758,5 @@
     try { await enterApp(); } catch { localStorage.removeItem(TOKEN_KEY); state.user = null; el.appScreen.classList.add('is-hidden'); el.authScreen.classList.remove('is-hidden'); setAuthMode('login'); }
   }
   setAuthMode('login'); restoreSession();
+  if (IS_FILE && !USE_MOCK_API) message(el.authMessage, `Похоже, сайт открыт двойным кликом по файлу. ${RUN_HINT}`);
 })();

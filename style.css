@@ -75,3 +75,17 @@ h1,h2,h3,.brand-panel h1,.topbar h1,.card-heading h2{font-family:'DM Sans',Arial
 .calendar-day h3{margin:0 0 10px}
 .modal-card .procedure-list{max-height:55vh;overflow:auto}
 @media(max-width:800px){.dashboard-grid{grid-template-columns:1fr}.view-switch{width:100%;margin-left:0}.view-switch button{flex:1}.pet-grid{grid-template-columns:repeat(3,1fr)}.pet-photo{height:145px}.calendar-month-header{align-items:flex-start;gap:8px}.calendar-header-actions{gap:4px}.calendar-header-actions .outline-button{padding:8px 9px}.calendar-cell{min-height:76px;padding:6px}.calendar-cell span{font-size:10px;padding:3px}.calendar-cell span small{display:none}}
+/* Обзор: колонка питомцев по ширине карточек, процедуры занимают остальное место */
+.dashboard-grid{grid-template-columns:auto minmax(320px,1fr);gap:24px;align-items:start}
+.dashboard-pets .pet-grid{grid-template-columns:repeat(var(--cols,3),200px)}
+@media(max-width:1200px){.dashboard-pets .pet-grid{grid-template-columns:repeat(var(--cols-sm,2),200px)}}
+
+/* Карточки питомцев крупнее, длинные имена переносятся */
+.pet-grid{grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px}
+.pet-photo{height:170px}
+.pet-card-body{padding:14px 16px 16px}
+.pet-card-body h3{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;line-height:1.25}
+.pet-card-body .pet-delete-button{display:block;width:100%;margin-top:8px;padding:8px 10px;font-size:13px}
+.pet-profile-actions{display:flex;flex-wrap:wrap;gap:8px}
+
+@media(max-width:800px){.dashboard-grid{grid-template-columns:1fr}.pet-grid,.dashboard-pets .pet-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}

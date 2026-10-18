@@ -11,13 +11,13 @@
   const TOKEN_KEY = 'petcare_access_token';
   const SPECIES = ['Кошка', 'Собака', 'Птица', 'Грызун', 'Рептилия', 'Рыба', 'Другое'];
   const CATEGORIES = {
-    vaccination: { label: 'Вакцинация', icon: '💉', placeholder: 'Например, Нобивак Rabies' },
-    parasites: { label: 'Обработка от паразитов', icon: '🛡️', placeholder: 'Например, Бравекто' },
-    vet_visit: { label: 'Визит к ветеринару', icon: '🩺', placeholder: 'Например, плановый осмотр' },
-    medication: { label: 'Приём препарата', icon: '💊', placeholder: 'Название препарата' },
-    reminder: { label: 'Напоминание', icon: '🔔', placeholder: 'Например, купить корм' },
-    food: { label: 'Корм', icon: '🥣', placeholder: 'Например, Royal Canin Sterilised' },
-    birthday: { label: 'День рождения', icon: '🎂', placeholder: '' },
+    vaccination: { label: 'Вакцинация', icon: 'heart', placeholder: 'Например, Нобивак Rabies' },
+    parasites: { label: 'Обработка от паразитов', icon: 'paw', placeholder: 'Например, Бравекто' },
+    vet_visit: { label: 'Визит к ветеринару', icon: 'user', placeholder: 'Например, плановый осмотр' },
+    medication: { label: 'Приём препарата', icon: 'bell', placeholder: 'Название препарата' },
+    reminder: { label: 'Напоминание', icon: 'bell', placeholder: 'Например, купить корм' },
+    food: { label: 'Корм', icon: 'bowl', placeholder: 'Например, Royal Canin Sterilised' },
+    birthday: { label: 'День рождения', icon: 'heart', placeholder: '' },
   };
   const RECORD_CATEGORIES = ['vaccination', 'parasites', 'vet_visit', 'medication', 'reminder'];
   const HEALTH_CATEGORIES = ['vaccination', 'parasites', 'vet_visit', 'medication'];
@@ -36,6 +36,7 @@
   const MAX_PHOTO_SIZE = 5 * 1024 * 1024;
   const MAX_COURSE_DOSES = 120;
   const POLL_INTERVAL = 45000;
+  const icon = (name, label = '') => `<svg class="svg-icon" aria-hidden="true"${label ? ` title="${escapeHtml(label)}"` : ''}><use href="icons.svg#${name}"></use></svg>`;
   const ERROR_TEXT = {
     'Invalid credentials': 'Неверный email или пароль.',
     'Wrong email or password': 'Неверный email или пароль.',
@@ -58,7 +59,7 @@
   };
   const $ = (selector) => document.querySelector(selector);
   const $$ = (selector) => [...document.querySelectorAll(selector)];
-  const el = { authScreen: $('#auth-screen'), appScreen: $('#app-screen'), authForm: $('#auth-form'), authMessage: $('#auth-message'), authName: $('#auth-name'), authEmail: $('#auth-email'), authPassword: $('#auth-password'), nameField: $('#name-field'), termsField: $('#terms-field'), terms: $('#terms'), authSubmit: $('#auth-submit'), authHint: $('#auth-hint'), verifyView: $('#verify-view'), authView: $('#auth-view'), verifyForm: $('#verify-form'), verifyEmail: $('#verify-email'), verifyCode: $('#verify-code'), verifyMessage: $('#verify-message'), resend: $('#resend-button'), resendStatus: $('#resend-status'), pageTitle: $('#page-title'), pageContent: $('#page-content'), appMessage: $('#app-message'), modal: $('#modal'), modalCard: $('.modal-card'), modalContent: $('#modal-content'), toast: $('#toast'), bellCount: $('#bell-count') };
+  const el = { authScreen: $('#auth-screen'), appScreen: $('#app-screen'), authForm: $('#auth-form'), authMessage: $('#auth-message'), authName: $('#auth-name'), authEmail: $('#auth-email'), authPassword: $('#auth-password'), nameField: $('#name-field'), authSubmit: $('#auth-submit'), authHint: $('#auth-hint'), verifyView: $('#verify-view'), authView: $('#auth-view'), verifyForm: $('#verify-form'), verifyEmail: $('#verify-email'), verifyCode: $('#verify-code'), verifyMessage: $('#verify-message'), resend: $('#resend-button'), resendStatus: $('#resend-status'), pageTitle: $('#page-title'), pageContent: $('#page-content'), appMessage: $('#app-message'), modal: $('#modal'), modalCard: $('.modal-card'), modalContent: $('#modal-content'), toast: $('#toast'), bellCount: $('#bell-count') };
 
   // ---------- Общие помощники ----------
   let toastTimer;
@@ -140,6 +141,7 @@
     if (route === '/user/login') { const u = byEmail(body.email); if (!u || u.passwd !== body.passwd) fail(401, 'Invalid credentials'); if (!(u.email_verified ?? u.verified)) fail(403, 'Email not verified'); return { access_token: u.token, token_type: 'bearer' }; }
     const token = localStorage.getItem(TOKEN_KEY); const user = Object.values(store.users).find((u) => u.token === token);
     if (!user) fail(401, 'Not authenticated');
+    if (route === '/user/del' && method === 'DELETE') { delete store.users[user.email]; store.pets = store.pets.filter((p) => !(p.own_ids || []).includes(user.id)); store.props = store.props.filter((p) => !(p.own_ids || []).includes(user.id)); saveMock(store); return null; }
     const mine = (item) => (item.own_ids || []).includes(user.id);
     const findPet = (id) => store.pets.find((p) => p.id === Number(id) && mine(p)) || fail(404, 'Pet not found');
     const findProp = (id) => store.props.find((p) => p.id === Number(id) && mine(p)) || fail(404, 'Prop not found');
@@ -299,7 +301,7 @@
   function showTime(item) { if (item.virtual) return false; const extra = propExtra(item.id); return extra.hasTime ?? timeOf(item.date) !== '00:00'; }
 
   // ---------- Авторизация ----------
-  function setAuthMode(mode) { state.authMode = mode; $$('.tab').forEach((tab) => tab.classList.toggle('is-active', tab.dataset.mode === mode)); el.nameField.classList.toggle('is-hidden', mode !== 'register'); el.termsField.classList.toggle('is-hidden', mode !== 'register'); $('#form-title').textContent = mode === 'login' ? 'Войти' : 'Создать аккаунт'; el.authSubmit.textContent = mode === 'login' ? 'Войти' : 'Зарегистрироваться'; el.authSubmit.dataset.default = el.authSubmit.textContent; el.authPassword.autocomplete = mode === 'login' ? 'current-password' : 'new-password'; el.authHint.textContent = USE_MOCK_API ? 'Демо-режим: код подтверждения 123456' : ''; clearMessage(el.authMessage); clearFieldErrors(el.authForm); }
+  function setAuthMode(mode) { state.authMode = mode; $$('.tab').forEach((tab) => tab.classList.toggle('is-active', tab.dataset.mode === mode)); el.nameField.classList.toggle('is-hidden', mode !== 'register'); $('#form-title').textContent = mode === 'login' ? 'Войти' : 'Создать аккаунт'; el.authSubmit.textContent = mode === 'login' ? 'Войти' : 'Зарегистрироваться'; el.authSubmit.dataset.default = el.authSubmit.textContent; el.authPassword.autocomplete = mode === 'login' ? 'current-password' : 'new-password'; el.authHint.textContent = USE_MOCK_API ? 'Демо-режим: код подтверждения 123456' : ''; clearMessage(el.authMessage); clearFieldErrors(el.authForm); }
   function showVerify(email) { state.verifyEmail = email; el.verifyEmail.textContent = email; el.verifyCode.value = ''; clearMessage(el.verifyMessage); el.authView.classList.add('is-hidden'); el.verifyView.classList.remove('is-hidden'); el.verifyCode.focus(); }
   let resendTimer;
   function startResendCooldown(statusNode, button, seconds = 60) { clearInterval(resendTimer); button.disabled = true; statusNode.textContent = `Отправить ещё раз можно через ${seconds} с.`; resendTimer = setInterval(() => { seconds--; statusNode.textContent = seconds ? `Отправить ещё раз можно через ${seconds} с.` : 'Можно отправить код ещё раз.'; if (!seconds) { clearInterval(resendTimer); button.disabled = false; } }, 1000); }
@@ -365,7 +367,7 @@
     localStorage.setItem('petcare_push_shown', JSON.stringify(shown.slice(-200)));
   }
   function startPolling() { clearInterval(state.pollTimer); state.pollTimer = setInterval(pollNotifications, POLL_INTERVAL); }
-  function noticeBanner() { const n = state.notificationCount; return n ? `<button class="notice-banner" data-action="open-notifications" type="button">🔔 ${n} ${plural(n, ['новое уведомление', 'новых уведомления', 'новых уведомлений'])} — посмотреть</button>` : ''; }
+    function noticeBanner() { const n = state.notificationCount; return n ? `<button class="notice-banner" data-action="open-notifications" type="button">${icon('bell')} ${n} ${plural(n, ['новое уведомление', 'новых уведомления', 'новых уведомлений'])} — посмотреть</button>` : ''; }
   function refreshBanner() { const slot = $('#notice-banner-slot'); if (!slot) return; slot.innerHTML = noticeBanner(); bindDynamic(slot); }
   async function openNotifications() {
     openModal('<h2>Уведомления</h2><div class="empty-state">Загружаем…</div>');
@@ -374,11 +376,11 @@
   function pushControl() {
     if (!('Notification' in window)) return '<p class="muted small-note">Этот браузер не поддерживает системные уведомления.</p>';
     if (Notification.permission === 'denied') return '<p class="muted small-note">Уведомления браузера заблокированы. Разрешите их в настройках сайта, чтобы получать напоминания.</p>';
-    return `<button class="secondary-button" type="button" data-action="toggle-push">${pushEnabled() ? 'Отключить уведомления браузера' : '🔔 Включить уведомления браузера'}</button>`;
+    return `<button class="secondary-button" type="button" data-action="toggle-push">${pushEnabled() ? 'Отключить уведомления браузера' : `${icon('bell')} Включить уведомления браузера`}</button>`;
   }
   function renderNotifications() {
     const items = state.notifications;
-    el.modalContent.innerHTML = `<h2>Уведомления</h2>${items.length ? `<div class="notification-list">${items.map((item) => { const cat = CATEGORIES[item.kind === 'birthday' ? 'birthday' : (state.props.find((p) => p.id === item.id)?.category || 'reminder')]; return `<article class="notification-item"><span class="event-icon">${cat.icon}</span><div><h3>${escapeHtml(item.name)}</h3>${item.msg ? `<p>${escapeHtml(item.msg)}</p>` : ''}<small>${formatDate(item.date, item.kind !== 'birthday')}</small></div><button class="outline-button" type="button" data-read-kind="${item.kind}" data-read-id="${item.id}">Прочитано</button></article>`; }).join('')}</div><button class="primary-button" type="button" data-action="read-all">Отметить все прочитанными</button>` : '<div class="empty-state">Новых уведомлений нет 🎉<br>Мы напомним о прививках, обработках и приёме препаратов.</div>'}${pushControl()}`;
+    el.modalContent.innerHTML = `<h2>Уведомления</h2>${items.length ? `<div class="notification-list">${items.map((item) => { const cat = CATEGORIES[item.kind === 'birthday' ? 'birthday' : (state.props.find((p) => p.id === item.id)?.category || 'reminder')]; return `<article class="notification-item"><span class="event-icon">${icon(cat.icon)}</span><div><h3>${escapeHtml(item.name)}</h3>${item.msg ? `<p>${escapeHtml(item.msg)}</p>` : ''}<small>${formatDate(item.date, item.kind !== 'birthday')}</small></div><button class="outline-button" type="button" data-read-kind="${item.kind}" data-read-id="${item.id}">Прочитано</button></article>`; }).join('')}</div><button class="primary-button" type="button" data-action="read-all">Отметить все прочитанными</button>` : `<div class="empty-state">Новых уведомлений нет.<br>Мы напомним о прививках, обработках и приёме препаратов.</div>`}${pushControl()}`;
     el.modalContent.querySelectorAll('[data-read-id]').forEach((button) => button.addEventListener('click', async () => {
       button.disabled = true;
       try { await request(`/notification/read?${button.dataset.readKind === 'birthday' ? 'pet_id' : 'prop_id'}=${button.dataset.readId}`, { method: 'POST' }); } catch (error) { if (error?.status !== 404) { notify(apiError(error), 'error'); button.disabled = false; return; } }
@@ -425,15 +427,15 @@
   }
   function petOptions(selected, emptyLabel) { return `<option value="">${emptyLabel}</option>${state.pets.map((p) => `<option value="${p.id}" ${String(selected) === String(p.id) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}`; }
   function bindSelect(id, apply) { $(`#${id}`)?.addEventListener('change', (event) => { apply(event.target.value); renderPage(); }); }
-  function quickActions(petId = '') { return `<div class="quick-actions">${['vaccination', 'parasites', 'vet_visit', 'medication'].map((c) => `<button class="outline-button" data-action="add-record" data-category="${c}" data-pet="${petId}">${CATEGORIES[c].icon} ${{ vaccination: 'Прививка', parasites: 'Обработка', vet_visit: 'Визит', medication: 'Препарат' }[c]}</button>`).join('')}<button class="outline-button" data-action="add-food" data-pet="${petId}">🥣 Корм</button></div>`; }
+  function quickActions(petId = '') { return `<div class="quick-actions">${['vaccination', 'parasites', 'vet_visit', 'medication'].map((c) => `<button class="outline-button" data-action="add-record" data-category="${c}" data-pet="${petId}">${icon(CATEGORIES[c].icon)} ${{ vaccination: 'Прививка', parasites: 'Обработка', vet_visit: 'Визит', medication: 'Препарат' }[c]}</button>`).join('')}<button class="outline-button" data-action="add-food" data-pet="${petId}">${icon('bowl')} Корм</button></div>`; }
 
   function renderDashboard() {
     const selected = state.selectedPet; const next = upcomingEvents(selected).slice(0, 8); const count = Math.max(1, state.pets.length); const selectedPet = state.pets.find((p) => p.id === selected);
-    el.pageContent.innerHTML = `<div class="dashboard-grid"><section class="dashboard-pets" style="--cols:${Math.min(count, 3)};--cols-sm:${Math.min(count, 2)}"><div class="section-title"><h2>Ваши питомцы</h2><button class="outline-button" data-action="add-pet">+ Добавить</button></div>${petGrid()}${state.pets.length > 1 ? '<p class="muted small-note">Нажмите на карточку, чтобы увидеть события только этого питомца.</p>' : ''}</section><section class="dashboard-procedures"><div id="notice-banner-slot">${noticeBanner()}</div><div class="section-title"><h2>Ближайшие события${selectedPet ? ` · ${escapeHtml(selectedPet.name)}` : ''}</h2><button class="outline-button" data-goto="reminders">Все →</button></div>${eventList(next, { actions: false, empty: 'Ближайших событий нет.<br>Добавьте прививку или обработку — следующую дату мы рассчитаем сами.' })}${quickActions(selected || '')}</section></div>`;
+    el.pageContent.innerHTML = `<div class="dashboard-grid"><section class="dashboard-pets" style="--cols:${Math.min(count, 3)};--cols-sm:${Math.min(count, 2)}"><div class="section-title"><h2>Ваши питомцы</h2></div>${petGrid()}${state.pets.length > 1 ? '<p class="muted small-note">Нажмите на карточку, чтобы увидеть события только этого питомца.</p>' : ''}</section><section class="dashboard-procedures"><div id="notice-banner-slot">${noticeBanner()}</div><div class="section-title"><h2>Ближайшие события${selectedPet ? ` · ${escapeHtml(selectedPet.name)}` : ''}</h2><button class="outline-button" data-goto="reminders">Все →</button></div>${eventList(next, { actions: false, empty: 'Ближайших событий нет.<br>Добавьте прививку или обработку — следующую дату мы рассчитаем сами.' })}${quickActions(selected || '')}</section></div>`;
     bindDynamic(); loadRemotePhotos();
   }
   function petGrid() { if (!state.pets.length) return '<div class="empty-state">Питомцев пока нет.<br><button class="primary-button compact-button empty-action" data-action="add-pet">+ Добавить питомца</button></div>'; return `<div class="pet-grid">${state.pets.map(petCard).join('')}</div>`; }
-  function petPhoto(pet, className = 'pet-photo') { const image = petImage(pet); return `<div class="${className}">${image ? `<img src="${image}" alt="${escapeHtml(pet.name)}">` : pet.has_picture && !USE_MOCK_API ? `<img data-photo-id="${pet.id}" alt="${escapeHtml(pet.name)}">` : '🐾'}</div>`; }
+  function petPhoto(pet, className = 'pet-photo') { const image = petImage(pet); return `<div class="${className}">${image ? `<img src="${image}" alt="${escapeHtml(pet.name)}">` : pet.has_picture && !USE_MOCK_API ? `<img data-photo-id="${pet.id}" alt="${escapeHtml(pet.name)}">` : `<svg class="svg-icon pet-placeholder"><use href="icons.svg#paw"></use></svg>`}</div>`; }
   function petMeta(pet) { return [pet.type, pet.breed, pet.birth_date ? ageText(pet.birth_date) : ''].filter(Boolean).join(' · '); }
   function petCard(pet) { const selected = state.selectedPet === pet.id ? ' is-selected' : ''; const meta = petMeta(pet); return `<article class="pet-card${selected}" data-action="select-pet" data-id="${pet.id}">${petPhoto(pet)}<div class="pet-card-body"><h3>${escapeHtml(pet.name)}</h3>${meta ? `<p class="pet-meta">${escapeHtml(meta)}</p>` : ''}<button class="outline-button pet-details-button" data-action="open-pet" data-id="${pet.id}">Вся информация</button></div></article>`; }
 
@@ -443,7 +445,7 @@
     const extra = petExtra(pet.id); const upcoming = upcomingEvents(pet.id).slice(0, 5); const food = foodBase(propsOfPet(pet.id).filter((p) => p.category === 'food'));
     const info = [['Вид', pet.type], ['Порода', pet.breed], ['Дата рождения', pet.birth_date ? `${formatDate(pet.birth_date, false)} (${ageText(pet.birth_date)})` : '']];
     el.pageContent.innerHTML = `<div class="section-title"><h2>Информация о питомце</h2><button class="outline-button" data-action="back-pets">← Все питомцы</button></div>
-      <section class="card pet-profile"><div class="pet-profile-header">${pet.has_picture || petImage(pet) ? `<button class="photo-zoom-trigger" type="button" data-action="zoom-photo" title="Открыть фото" aria-label="Открыть фото крупнее">${petPhoto(pet, 'avatar-large pet-avatar-placeholder')}</button>` : petPhoto(pet, 'avatar-large pet-avatar-placeholder')}<div><h2>${escapeHtml(pet.name)}</h2><p class="muted">${escapeHtml(petMeta(pet) || 'Вид, порода и дата рождения пока не указаны')}</p><div class="pet-profile-actions"><button class="outline-button" data-action="edit-pet" data-id="${pet.id}">Редактировать</button><button class="icon-button danger" type="button" data-action="delete-pet" data-id="${pet.id}" title="Удалить питомца" aria-label="Удалить питомца">🗑</button></div></div></div>
+      <section class="card pet-profile"><div class="pet-profile-header">${pet.has_picture || petImage(pet) ? `<button class="photo-zoom-trigger" type="button" data-action="zoom-photo" title="Открыть фото" aria-label="Открыть фото крупнее">${petPhoto(pet, 'avatar-large pet-avatar-placeholder')}</button>` : petPhoto(pet, 'avatar-large pet-avatar-placeholder')}<div><h2>${escapeHtml(pet.name)}</h2><p class="muted">${escapeHtml(petMeta(pet) || 'Вид, порода и дата рождения пока не указаны')}</p><div class="pet-profile-actions"><button class="outline-button" data-action="edit-pet" data-id="${pet.id}">Редактировать</button><button class="icon-button danger" type="button" data-action="delete-pet" data-id="${pet.id}" title="Удалить питомца" aria-label="Удалить питомца">${icon('trash')}</button></div></div></div>
       <div class="info-list">${info.map(([label, value]) => `<div><small>${label}</small><strong>${escapeHtml(value || '—')}</strong></div>`).join('')}</div>
       <hr><div class="section-title"><h3>Карта здоровья</h3><button class="outline-button" data-goto="health" data-pet="${pet.id}">Открыть →</button></div>${healthSummary(pet.id)}${quickActions(pet.id)}
       <hr><div class="section-title"><h3>Питание</h3><button class="outline-button" data-goto="food" data-pet="${pet.id}">Журнал →</button></div>${food.html || '<p class="muted">Записей о кормах пока нет.</p>'}
@@ -456,7 +458,7 @@
     const cat = CATEGORIES[item.category] || CATEGORIES.reminder; const pet = item.virtual ? state.pets.find((p) => p.id === item.petId) : petOf(item); const relative = relativeDay(item.date);
     const overdue = !item.virtual && item.category === 'reminder' && !isRepeating(item) && parseDate(item.date) < startOfDay();
     const textLabel = { vet_visit: 'Заключение', food: 'Комментарий', medication: 'Назначение' }[item.category] || 'Заметка';
-    return `<article class="event-card event-${item.category}"><div class="event-icon">${cat.icon}</div><div class="event-body"><div class="event-meta"><span class="category-chip">${cat.label}</span>${relative ? `<span class="relative-chip">${relative}</span>` : ''}${overdue ? '<span class="relative-chip is-past">Прошло</span>' : ''}</div><h3>${escapeHtml(item.name)}</h3><p class="event-sub"><strong>${escapeHtml(pet ? pet.name : 'Все питомцы')}</strong> · ${formatDate(item.date, showTime(item))}</p>${item.msg ? `<p>${escapeHtml(item.msg)}</p>` : ''}${item.text ? `<p class="event-text"><strong>${textLabel}:</strong> ${escapeHtml(item.text)}</p>` : ''}${item.category === 'food' ? foodBadges(item) : ''}${!item.virtual && isRepeating(item) ? `<p class="event-repeat">↻ Повторяется: ${periodLabel(item).toLowerCase()}</p>` : ''}</div>${actions && !item.virtual ? `<div class="event-actions"><button class="icon-button" type="button" data-action="edit-prop" data-id="${item.id}" data-date="${item.date}" title="Изменить" aria-label="Изменить">✎</button><button class="icon-button danger" type="button" data-action="delete-prop" data-id="${item.id}" data-date="${item.date}" title="Удалить" aria-label="Удалить">🗑</button></div>` : ''}</article>`;
+    return `<article class="event-card event-${item.category}"><div class="event-icon">${icon(cat.icon)}</div><div class="event-body"><div class="event-meta"><span class="category-chip">${cat.label}</span>${relative ? `<span class="relative-chip">${relative}</span>` : ''}${overdue ? '<span class="relative-chip is-past">Прошло</span>' : ''}</div><h3>${escapeHtml(item.name)}</h3><p class="event-sub"><strong>${escapeHtml(pet ? pet.name : 'Все питомцы')}</strong> · ${formatDate(item.date, showTime(item))}</p>${item.msg ? `<p>${escapeHtml(item.msg)}</p>` : ''}${item.text ? `<p class="event-text"><strong>${textLabel}:</strong> ${escapeHtml(item.text)}</p>` : ''}${item.category === 'food' ? foodBadges(item) : ''}${!item.virtual && isRepeating(item) ? `<p class="event-repeat">↻ Повторяется: ${periodLabel(item).toLowerCase()}</p>` : ''}</div>${actions && !item.virtual ? `<div class="event-actions"><button class="icon-button" type="button" data-action="edit-prop" data-id="${item.id}" data-date="${item.date}" title="Изменить" aria-label="Изменить">${icon('edit')}</button><button class="icon-button danger" type="button" data-action="delete-prop" data-id="${item.id}" data-date="${item.date}" title="Удалить" aria-label="Удалить">${icon('trash')}</button></div>` : ''}</article>`;
   }
   function eventList(items, options = {}) { if (!items.length) return `<div class="empty-state">${options.empty || 'Записей пока нет.'}</div>`; return `<div class="event-list">${items.map((item) => eventCard(item, options)).join('')}</div>`; }
 
@@ -469,11 +471,11 @@
     const tile = (icon, title, value, sub) => `<div class="summary-tile"><small>${icon} ${title}</small><strong>${value}</strong><span>${sub}</span></div>`;
     const planned = (cat, label) => { const item = next(cat); return item ? `${label}: ${formatDate(item.date, false)}` : `${label} не запланирована`; };
     const vaccine = last('vaccination'); const parasites = last('parasites'); const visit = last('vet_visit'); const medication = next('medication');
-    return `<div class="summary-grid">${tile('💉', 'Вакцинация', vaccine ? formatDate(vaccine.date, false) : 'Нет записей', planned('vaccination', 'Следующая'))}${tile('🛡️', 'Обработка от паразитов', parasites ? formatDate(parasites.date, false) : 'Нет записей', planned('parasites', 'Следующая'))}${tile('🩺', 'Визит к ветеринару', visit ? formatDate(visit.date, false) : 'Нет записей', visit ? escapeHtml(visit.name) : 'Добавьте заключение врача')}${tile('💊', 'Препараты', medication ? escapeHtml(medication.name) : 'Нет назначений', medication ? `Следующий приём: ${formatDate(medication.date)}` : 'Активных курсов нет')}${tile('⚖️', 'Вес', weights[0] ? `${weights[0].kg} кг` : 'Нет данных', weights[0] ? `на ${formatDate(weights[0].date, false)}` : 'Добавьте первое измерение')}</div>`;
+    return `<div class="summary-grid">${tile(icon('heart'), 'Вакцинация', vaccine ? formatDate(vaccine.date, false) : 'Нет записей', planned('vaccination', 'Следующая'))}${tile(icon('paw'), 'Обработка от паразитов', parasites ? formatDate(parasites.date, false) : 'Нет записей', planned('parasites', 'Следующая'))}${tile(icon('user'), 'Визит к ветеринару', visit ? formatDate(visit.date, false) : 'Нет записей', visit ? escapeHtml(visit.name) : 'Добавьте заключение врача')}${tile(icon('bell'), 'Препараты', medication ? escapeHtml(medication.name) : 'Нет назначений', medication ? `Следующий приём: ${formatDate(medication.date)}` : 'Активных курсов нет')}${tile('', 'Вес', weights[0] ? `${weights[0].kg} кг` : 'Нет данных', weights[0] ? `на ${formatDate(weights[0].date, false)}` : 'Добавьте первое измерение')}</div>`;
   }
   function renderHealth() {
     const petId = state.healthPet; const tab = state.healthTab;
-    const tabs = [['all', 'Все записи'], ['vaccination', '💉 Вакцинации'], ['parasites', '🛡️ Паразиты'], ['vet_visit', '🩺 Визиты и заключения'], ['medication', '💊 Препараты'], ['weight', '⚖️ Вес']];
+      const tabs = [['all', 'Все записи'], ['vaccination', 'Вакцинации'], ['parasites', 'Паразиты'], ['vet_visit', 'Визиты и заключения'], ['medication', 'Препараты'], ['weight', 'Вес']];
     let body;
     if (tab === 'weight') body = weightSection(petId);
     else {
@@ -489,7 +491,7 @@
   function weightSection(petId) {
     if (!petId) return '<div class="empty-state">Выберите питомца в списке выше, чтобы вести учёт веса.</div>';
     const weights = (extras().weights[petId] || []).slice().sort(byDateDesc);
-    const rows = weights.map((item, index) => { const prev = weights[index + 1]; const diff = prev ? Math.round((item.kg - prev.kg) * 100) / 100 : null; return `<article class="weight-row"><div><strong>${item.kg} кг</strong>${diff ? `<span class="weight-diff ${diff > 0 ? 'up' : 'down'}">${diff > 0 ? '+' : ''}${diff} кг</span>` : ''}<p>${formatDate(item.date, false)}${item.note ? ` · ${escapeHtml(item.note)}` : ''}</p></div><button class="icon-button danger" type="button" data-action="delete-weight" data-id="${item.id}" aria-label="Удалить измерение">🗑</button></article>`; }).join('');
+    const rows = weights.map((item, index) => { const prev = weights[index + 1]; const diff = prev ? Math.round((item.kg - prev.kg) * 100) / 100 : null; return `<article class="weight-row"><div><strong>${item.kg} кг</strong>${diff ? `<span class="weight-diff ${diff > 0 ? 'up' : 'down'}">${diff > 0 ? '+' : ''}${diff} кг</span>` : ''}<p>${formatDate(item.date, false)}${item.note ? ` · ${escapeHtml(item.note)}` : ''}</p></div><button class="icon-button danger" type="button" data-action="delete-weight" data-id="${item.id}" aria-label="Удалить измерение">${icon('trash')}</button></article>`; }).join('');
     return `<section class="card weight-card"><h3>Новое измерение</h3><form id="weight-form" class="inline-form" novalidate><div class="field"><label for="weight-date">Дата *</label><input id="weight-date" name="date" type="date" max="${dayKey(new Date())}" value="${dayKey(new Date())}"></div><div class="field"><label for="weight-kg">Вес, кг *</label><input id="weight-kg" name="kg" type="text" inputmode="decimal" placeholder="Например, 4.2"></div><div class="field"><label for="weight-note">Заметка</label><input id="weight-note" name="note" maxlength="200" placeholder="Например, после стрижки"></div><button class="primary-button compact-button" type="submit">Добавить</button></form><p class="muted small-note">Измерения веса сохраняются в этом браузере.</p></section><section class="page-section"><h3 class="subsection-title">История веса</h3>${rows ? `<div class="event-list">${rows}</div>` : '<div class="empty-state">Измерений пока нет.</div>'}</section>`;
   }
   function bindWeightForm(petId) {
@@ -551,8 +553,8 @@
     const repeat = isEdit && isRepeating(prop); const series = isEdit ? courseSeries(prop) : []; const hasScope = repeat || series.length > 1;
     const scopes = repeat ? [['one', `Только ${dayLabel(day)}`], ['all', 'Все повторы']] : [['one', 'Только этот приём'], ['all', `Весь курс (${series.length} ${plural(series.length, ['приём', 'приёма', 'приёмов'])})`]];
     const scopeField = hasScope ? `<div class="field scope-field"><label>Что изменить?</label><div class="segmented">${scopes.map(([value, label], index) => `<label class="segment"><input type="radio" name="scope" value="${value}" ${index === 0 ? 'checked' : ''}><span>${label}</span></label>`).join('')}</div><p class="field-hint" id="scope-hint"></p></div>` : '';
-    openModal(`<h2>${isEdit ? 'Редактировать запись' : 'Новая запись'}</h2><form id="record-form" novalidate>${scopeField}
-      <div class="field"><label for="record-category">Тип записи</label><select id="record-category" name="category">${RECORD_CATEGORIES.map((c) => `<option value="${c}" ${c === category ? 'selected' : ''}>${CATEGORIES[c].icon} ${CATEGORIES[c].label}</option>`).join('')}</select></div>
+    openModal(`<h2>${isEdit ? 'Редактировать запись' : 'Добавить событие'}</h2>${!isEdit ? '<p class="muted modal-lead">Заполните данные нового события — оно появится в профиле питомца и в ближайших событиях.</p>' : ''}<form id="record-form" novalidate>${scopeField}
+      <div class="field"><label for="record-category">Тип записи</label><select id="record-category" name="category">${RECORD_CATEGORIES.map((c) => `<option value="${c}" ${c === category ? 'selected' : ''}>${CATEGORIES[c].label}</option>`).join('')}</select></div>
       <div class="field"><label for="record-pet">Питомец</label><select id="record-pet" name="petId">${petOptions(petId, 'Без привязки к питомцу')}</select></div>
       <div class="field"><label for="record-name" data-name-label>Название *</label><input id="record-name" name="name" maxlength="200" value="${escapeHtml(prop.name || '')}" placeholder="${CATEGORIES[category].placeholder}"></div>
       <div class="field-row"><div class="field"><label for="record-date" data-date-label>Дата *</label><input id="record-date" name="date" type="date" value="${day}"></div><div class="field"><label for="record-time">Время</label><input id="record-time" name="time" type="time" value="${time}"></div></div>
@@ -562,7 +564,7 @@
       <div data-for="medication">${courseFields('course_')}</div>
       <details class="form-details" data-for="vet_visit"><summary>💊 Назначить препарат по заключению</summary><div class="field"><label for="rx-name">Препарат</label><input id="rx-name" name="rx_name" maxlength="200" placeholder="Например, Синулокс"></div><div class="field"><label for="rx-dose">Дозировка</label><input id="rx-dose" name="rx_dose" maxlength="200" placeholder="Например, 1/2 таблетки"></div>${courseFields('rx_', day)}</details>`}
       <div data-for="reminder" id="repeat-block"><label class="checkbox-row"><input name="rep" type="checkbox" ${repeat ? 'checked' : ''}> Повторять напоминание</label><div class="${repeat ? '' : 'is-hidden'}" id="period-field">${repeatFields(prop, day)}</div></div>
-      <div class="form-actions"><button type="button" class="secondary-button" data-close-modal>Отмена</button><button class="primary-button" type="submit">Сохранить</button></div></form>`);
+      <div class="form-actions"><button type="button" class="secondary-button" data-close-modal>Отмена</button><button class="primary-button" type="submit">${isEdit ? 'Сохранить изменения' : 'Добавить событие'}</button></div></form>`);
     const form = $('#record-form');
     const refresh = (categoryChanged = false) => {
       const cat = form.elements.category.value; const scope = form.elements.scope?.value;
@@ -648,19 +650,19 @@
   // ---------- Питание ----------
   function foodBadges(item) {
     const badges = [];
-    if (item.liked === true) badges.push('<span class="badge good">👍 Понравилось</span>'); if (item.liked === false) badges.push('<span class="badge bad">👎 Не понравилось</span>');
-    if (item.suitable === true) badges.push('<span class="badge good">✅ Подошло</span>'); if (item.suitable === false) badges.push('<span class="badge bad">⛔ Не подошло</span>');
-    (item.reactions || []).forEach((r) => badges.push(`<span class="badge warn">⚠️ ${REACTIONS[r] || escapeHtml(r)}</span>`));
-    return `<div class="badge-row">${badges.length ? badges.join('') : '<span class="badge">Не оценено</span>'}</div>`;
+    if (item.liked === true) badges.push(`<span class="badge good">${icon('like')} Понравилось</span>`); if (item.liked === false) badges.push(`<span class="badge bad">${icon('dislike')} Не понравилось</span>`);
+    if (item.suitable === true) badges.push('<span class="badge good">Подошло</span>'); if (item.suitable === false) badges.push('<span class="badge bad">Не подошло</span>');
+    (item.reactions || []).forEach((r) => badges.push(`<span class="badge warn">${REACTIONS[r] || escapeHtml(r)}</span>`));
+    return `<div class="badge-row">${badges.length ? badges.join('') : '<span class="badge">Не оценено</span>'}</div><div class="food-reaction-actions"><button class="icon-button ${item.liked === true ? 'is-active' : ''}" type="button" data-action="rate-food" data-id="${item.id}" data-field="liked" data-value="true" title="Понравилось" aria-label="Понравилось">${icon('like')}</button><button class="icon-button danger ${item.liked === false ? 'is-active' : ''}" type="button" data-action="rate-food" data-id="${item.id}" data-field="liked" data-value="false" title="Не понравилось" aria-label="Не понравилось">${icon('dislike')}</button></div>`;
   }
   function foodBase(items) {
     const groups = {};
     items.forEach((item) => { const pet = petOf(item); const key = `${item.name.trim().toLowerCase()}|${pet?.id || ''}`; const group = groups[key] ||= { name: item.name.trim(), pet, count: 0, liked: 0, disliked: 0, suitable: 0, unsuitable: 0, reactions: new Set() }; group.count++; if (item.liked === true) group.liked++; if (item.liked === false) group.disliked++; if (item.suitable === true) group.suitable++; if (item.suitable === false) group.unsuitable++; (item.reactions || []).forEach((r) => group.reactions.add(r)); });
     const list = Object.values(groups); if (!list.length) return { html: '' };
     const bad = list.filter((g) => g.unsuitable || g.reactions.size); const good = list.filter((g) => !bad.includes(g) && g.suitable); const unknown = list.filter((g) => !good.includes(g) && !bad.includes(g));
-    const row = (g) => `<li><strong>${escapeHtml(g.name)}</strong><span>${g.pet ? `${escapeHtml(g.pet.name)} · ` : ''}${g.count} ${plural(g.count, ['запись', 'записи', 'записей'])}${g.liked ? ` · 👍 ${g.liked}` : ''}${g.disliked ? ` · 👎 ${g.disliked}` : ''}</span>${g.reactions.size ? `<span class="reaction-line">⚠️ ${[...g.reactions].map((r) => REACTIONS[r] || escapeHtml(r)).join(', ')}</span>` : ''}</li>`;
+    const row = (g) => `<li><strong>${escapeHtml(g.name)}</strong><span>${g.pet ? `${escapeHtml(g.pet.name)} · ` : ''}${g.count} ${plural(g.count, ['запись', 'записи', 'записей'])}${g.liked ? ` · ${icon('like')} ${g.liked}` : ''}${g.disliked ? ` · ${icon('dislike')} ${g.disliked}` : ''}</span>${g.reactions.size ? `<span class="reaction-line">${[...g.reactions].map((r) => REACTIONS[r] || escapeHtml(r)).join(', ')}</span>` : ''}</li>`;
     const column = (title, entries, cls, empty) => `<div class="food-column ${cls}"><h4>${title}</h4>${entries.length ? `<ul>${entries.map(row).join('')}</ul>` : `<p class="muted">${empty}</p>`}</div>`;
-    return { html: `<div class="food-base">${column('✅ Подходят', good, 'good', 'Пока нет кормов с оценкой «подошло».')}${column('⛔ Не подходят', bad, 'bad', 'Нет кормов с плохой переносимостью.')}${unknown.length ? column('❔ Без оценки', unknown, 'unknown', '') : ''}</div>` };
+    return { html: `<div class="food-base">${column('Подходят', good, 'good', 'Пока нет кормов с оценкой «подошло».')}${column('Не подходят', bad, 'bad', 'Нет кормов с плохой переносимостью.')}${unknown.length ? column('Без оценки', unknown, 'unknown', '') : ''}</div>` };
   }
   function renderFood() {
     const all = propsOfPet(state.foodPet).filter((p) => p.category === 'food');
@@ -669,7 +671,7 @@
     el.pageContent.innerHTML = `<div class="section-title"><div><h2>Журнал питания</h2><p class="muted section-subtitle">Какие корма получал питомец, понравились ли они и как он их перенёс.</p></div><button class="primary-button compact-button" data-action="add-food" data-pet="${state.foodPet}">+ Добавить корм</button></div>
       <div class="filters"><select id="food-pet" aria-label="Питомец">${petOptions(state.foodPet, 'Все питомцы')}</select></div>
       <section class="page-section"><h3 class="subsection-title">База предпочтений</h3>${base.html || '<div class="empty-state">Добавьте первую запись о корме — здесь появится список того, что подходит питомцу, а что нет.</div>'}</section>
-      <section class="page-section"><div class="section-title"><h3 class="subsection-title">История кормления</h3><div class="filters compact-filters"><select id="food-liked" aria-label="Предпочтение"><option value="">Любое предпочтение</option><option value="true" ${state.foodLiked === 'true' ? 'selected' : ''}>👍 Понравилось</option><option value="false" ${state.foodLiked === 'false' ? 'selected' : ''}>👎 Не понравилось</option></select><select id="food-suitable" aria-label="Переносимость"><option value="">Любая переносимость</option><option value="true" ${state.foodSuitable === 'true' ? 'selected' : ''}>✅ Подошло</option><option value="false" ${state.foodSuitable === 'false' ? 'selected' : ''}>⛔ Не подошло</option></select></div></div>${eventList(items, { empty: all.length ? 'По выбранным фильтрам ничего не найдено.' : 'Записей о кормах пока нет.' })}</section>`;
+      <section class="page-section"><div class="section-title"><h3 class="subsection-title">История кормления</h3><div class="filters compact-filters"><select id="food-liked" aria-label="Предпочтение"><option value="">Любое предпочтение</option><option value="true" ${state.foodLiked === 'true' ? 'selected' : ''}>Понравилось</option><option value="false" ${state.foodLiked === 'false' ? 'selected' : ''}>Не понравилось</option></select><select id="food-suitable" aria-label="Переносимость"><option value="">Любая переносимость</option><option value="true" ${state.foodSuitable === 'true' ? 'selected' : ''}>Подошло</option><option value="false" ${state.foodSuitable === 'false' ? 'selected' : ''}>Не подошло</option></select></div></div>${eventList(items, { empty: all.length ? 'По выбранным фильтрам ничего не найдено.' : 'Записей о кормах пока нет.' })}</section>`;
     bindSelect('food-pet', (value) => { state.foodPet = value; }); bindSelect('food-liked', (value) => { state.foodLiked = value; }); bindSelect('food-suitable', (value) => { state.foodSuitable = value; });
     bindDynamic();
   }
@@ -682,8 +684,8 @@
       <div class="field"><label for="food-name">Корм *</label><input id="food-name" name="name" maxlength="200" value="${escapeHtml(prop.name || '')}" placeholder="${CATEGORIES.food.placeholder}"></div>
       <div class="field-row"><div class="field"><label for="food-date">Дата *</label><input id="food-date" name="date" type="date" max="${dayKey(new Date())}" value="${day}"></div><div class="field"><label for="food-time">Время</label><input id="food-time" name="time" type="time" value="${time}"></div></div>
       <div class="field"><label for="food-msg">Порция</label><input id="food-msg" name="msg" maxlength="200" value="${escapeHtml(prop.msg || '')}" placeholder="Например, 60 г утром"></div>
-      ${ratingField('liked', 'Понравилось питомцу?', prop.liked, [['true', '👍 Понравилось'], ['false', '👎 Не понравилось'], ['', 'Не оценено']])}
-      ${ratingField('suitable', 'Подошёл ли корм?', prop.suitable, [['true', '✅ Подошло'], ['false', '⛔ Не подошло'], ['', 'Не оценено']])}
+      ${ratingField('liked', 'Понравилось питомцу?', prop.liked, [['true', `${icon('like')} Понравилось`], ['false', `${icon('dislike')} Не понравилось`], ['', 'Не оценено']])}
+      ${ratingField('suitable', 'Подошёл ли корм?', prop.suitable, [['true', 'Подошло'], ['false', 'Не подошло'], ['', 'Не оценено']])}
       <div class="field"><label>Нежелательные реакции</label><div class="checkbox-grid">${Object.entries(REACTIONS).map(([value, label]) => `<label class="checkbox-row"><input type="checkbox" name="reactions" value="${value}" ${(prop.reactions || []).includes(value) ? 'checked' : ''}> ${label}</label>`).join('')}</div></div>
       <div class="field"><label for="food-text">Комментарий</label><textarea id="food-text" name="text" maxlength="1000" placeholder="Например, мягкий стул на второй день">${escapeHtml(prop.text || '')}</textarea></div>
       <div class="form-actions"><button type="button" class="secondary-button" data-close-modal>Отмена</button><button class="primary-button" type="submit">Сохранить</button></div></form>`);
@@ -710,7 +712,7 @@
 
   // ---------- Напоминания: список и календарь ----------
   function renderReminders() {
-    const types = [['', 'Все события'], ...RECORD_CATEGORIES.map((c) => [c, `${CATEGORIES[c].icon} ${CATEGORIES[c].label}`]), ['birthday', '🎂 Дни рождения']];
+    const types = [['', 'Все события'], ...RECORD_CATEGORIES.map((c) => [c, CATEGORIES[c].label]), ['birthday', 'Дни рождения']];
     el.pageContent.innerHTML = `<div class="section-title"><div><h2>Ближайшие события</h2><p class="muted section-subtitle">Процедуры, приём препаратов, напоминания и дни рождения питомцев.</p></div><button class="primary-button compact-button" data-action="add-record" data-category="reminder" data-pet="${state.remindersPet}">+ Напоминание</button></div>
       <div class="filters"><select id="reminders-pet" aria-label="Питомец">${petOptions(state.remindersPet, 'Все питомцы')}</select><select id="reminders-type" aria-label="Тип события">${types.map(([value, label]) => `<option value="${value}" ${state.remindersType === value ? 'selected' : ''}>${label}</option>`).join('')}</select><div class="date-filter"><input id="reminders-date" type="date" value="${state.remindersDate}" aria-label="Дата">${state.remindersDate ? '<button class="outline-button" id="clear-reminders-date" type="button">Сбросить дату</button>' : ''}</div><div class="view-switch"><button class="outline-button ${state.procedureView === 'list' ? 'is-active' : ''}" data-view="list" type="button">Список</button><button class="outline-button ${state.procedureView === 'calendar' ? 'is-active' : ''}" data-view="calendar" type="button">Календарь</button></div></div><div id="procedure-output"></div>`;
     bindSelect('reminders-pet', (value) => { state.remindersPet = value; }); bindSelect('reminders-type', (value) => { state.remindersType = value; });
@@ -735,7 +737,7 @@
     const base = state.calendarMonth; const year = base.getFullYear(); const month = base.getMonth(); const first = new Date(year, month, 1); const days = new Date(year, month + 1, 0).getDate();
     const items = eventsFor(state.remindersPet, state.remindersType, first, new Date(year, month, days, 23, 59)); const byDate = {}; items.forEach((item) => { (byDate[dateOnly(item.date)] ||= []).push(item); });
     const today = dayKey(new Date()); const blanks = Array.from({ length: (first.getDay() + 6) % 7 }, () => '<div class="calendar-cell is-empty"></div>').join('');
-    const cells = Array.from({ length: days }, (_, index) => { const day = index + 1; const key = `${year}-${pad(month + 1)}-${pad(day)}`; const dayItems = (byDate[key] || []).sort(byDateAsc); const classes = [dayItems.length ? 'has-procedures' : '', key === today ? 'is-today' : '', key === state.calendarSelectedDate ? 'is-selected' : ''].filter(Boolean).join(' '); return `<button class="calendar-cell ${classes}" type="button" data-calendar-date="${key}" aria-label="${dayLabel(key)}${dayItems.length ? `, событий: ${dayItems.length}` : ''}"><strong>${day}</strong>${dayItems.slice(0, 3).map((item) => { const pet = item.virtual ? state.pets.find((p) => p.id === item.petId) : petOf(item); return `<span title="${escapeHtml(item.name)}">${CATEGORIES[item.category]?.icon || ''} ${escapeHtml(item.name)}<small>${escapeHtml(pet ? pet.name : 'Все питомцы')}</small></span>`; }).join('')}${dayItems.length > 3 ? `<small class="calendar-more">+ ещё ${dayItems.length - 3}</small>` : ''}</button>`; }).join('');
+    const cells = Array.from({ length: days }, (_, index) => { const day = index + 1; const key = `${year}-${pad(month + 1)}-${pad(day)}`; const dayItems = (byDate[key] || []).sort(byDateAsc); const classes = [dayItems.length ? 'has-procedures' : '', key === today ? 'is-today' : '', key === state.calendarSelectedDate ? 'is-selected' : ''].filter(Boolean).join(' '); return `<button class="calendar-cell ${classes}" type="button" data-calendar-date="${key}" aria-label="${dayLabel(key)}${dayItems.length ? `, событий: ${dayItems.length}` : ''}"><strong>${day}</strong>${dayItems.slice(0, 3).map((item) => { const pet = item.virtual ? state.pets.find((p) => p.id === item.petId) : petOf(item); return `<span title="${escapeHtml(item.name)}">${CATEGORIES[item.category] ? icon(CATEGORIES[item.category].icon) : ''} ${escapeHtml(item.name)}<small>${escapeHtml(pet ? pet.name : 'Все питомцы')}</small></span>`; }).join('')}${dayItems.length > 3 ? `<small class="calendar-more">+ ещё ${dayItems.length - 3}</small>` : ''}</button>`; }).join('');
     const selected = state.calendarSelectedDate; const selectedItems = selected ? eventsFor(state.remindersPet, state.remindersType, new Date(`${selected}T00:00:00`), new Date(`${selected}T23:59:59`)).filter((item) => dateOnly(item.date) === selected).sort(byDateAsc) : [];
     const selectedOutput = selected ? `<section class="calendar-selected-day"><h3>${dayLabel(selected)}</h3>${eventList(selectedItems, { empty: 'На этот день ничего не запланировано.' })}</section>` : '<div class="calendar-selection-hint">Нажмите на дату, чтобы увидеть все события этого дня.</div>';
     return `<div class="calendar-month"><div class="calendar-month-header"><button class="outline-button" type="button" data-calendar-month="prev" aria-label="Предыдущий месяц">←</button><h3>${base.toLocaleString('ru-RU', { month: 'long', year: 'numeric' })}</h3><div class="calendar-header-actions"><button class="outline-button" type="button" data-calendar-today>Сегодня</button><button class="outline-button" type="button" data-calendar-month="next" aria-label="Следующий месяц">→</button></div></div><div class="calendar-weekdays"><span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span></div><div class="calendar-grid">${blanks}${cells}</div></div>${selectedOutput}`;
@@ -744,14 +746,14 @@
   // ---------- Аккаунт ----------
   function renderProfile() {
     const user = state.user; const avatar = avatarImage();
-    el.pageContent.innerHTML = `<div class="card profile-card avatar-card"><div class="avatar-large profile-avatar">${avatar ? `<img src="${escapeHtml(avatar)}" alt="Аватар">` : escapeHtml(userInitial())}</div><div><h2>Аватар</h2><p class="muted">JPEG, PNG или WebP до 5 МБ. Сохраняется сразу.</p><div class="pet-profile-actions"><label class="outline-button file-button">${avatar ? 'Заменить фото' : 'Загрузить фото'}<input id="avatar-input" type="file" accept="image/jpeg,image/png,image/webp"></label>${avatar ? '<button class="icon-button danger" type="button" id="avatar-remove" title="Удалить аватар" aria-label="Удалить аватар">🗑</button>' : ''}</div></div></div>
+    el.pageContent.innerHTML = `<div class="card profile-card avatar-card"><button class="photo-zoom-trigger avatar-large profile-avatar" type="button" data-action="zoom-avatar" title="Открыть фото крупнее" aria-label="Открыть аватар крупнее">${avatar ? `<img src="${escapeHtml(avatar)}" alt="Аватар">` : escapeHtml(userInitial())}</button><div><h2>Аватар</h2><p class="muted">JPEG, PNG или WebP до 5 МБ. Нажмите на фото, чтобы открыть его крупнее.</p><div class="pet-profile-actions"><label class="outline-button file-button">${avatar ? 'Заменить фото' : 'Загрузить фото'}<input id="avatar-input" type="file" accept="image/jpeg,image/png,image/webp"></label>${avatar ? `<button class="icon-button danger" type="button" id="avatar-remove" title="Удалить аватар" aria-label="Удалить аватар">${icon('trash')}</button>` : ''}</div></div></div>
       <div class="card profile-card"><h2>Данные аккаунта</h2><p class="muted">Измените имя, email или телефон. Для подтверждения введите текущий пароль.</p><form id="profile-form" novalidate>
       <div class="field"><label for="profile-name">Имя *</label><input id="profile-name" name="name" autocomplete="name" maxlength="100" value="${escapeHtml(user.name || '')}"></div>
-      <div class="field"><label for="profile-email">Email *</label><input id="profile-email" name="email" type="email" autocomplete="email" value="${escapeHtml(user.email || '')}">${user.email_verified === false ? '<p class="field-hint">⚠️ Email не подтверждён. <button class="text-button" type="button" data-action="verify-email">Подтвердить</button></p>' : ''}</div>
+      <div class="field"><label for="profile-email">Email *</label><input id="profile-email" name="email" type="email" autocomplete="email" value="${escapeHtml(user.email || '')}">${user.email_verified === false ? '<p class="field-hint">Email не подтверждён. <button class="text-button" type="button" data-action="verify-email">Подтвердить</button></p>' : ''}</div>
       <div class="field"><label for="profile-phone">Телефон</label><input id="profile-phone" name="phone_number" type="tel" autocomplete="tel" placeholder="+79990000000" value="${escapeHtml(user.phone_number || '')}"></div>
       <div class="field"><label for="profile-new-password">Новый пароль</label><input id="profile-new-password" name="new_passwd" type="password" autocomplete="new-password" placeholder="Оставьте пустым, чтобы не менять"></div>
       <div class="field"><label for="profile-password">Текущий пароль *</label><input id="profile-password" name="passwd" type="password" autocomplete="current-password" placeholder="Для подтверждения изменений"></div>
-      <button class="primary-button" type="submit">Сохранить данные</button></form></div>`;
+      <button class="primary-button" type="submit">Сохранить данные</button></form><div class="account-danger"><h3>Удаление аккаунта</h3><p class="muted">Аккаунт, питомцы и записи, которыми больше никто не владеет, будут удалены без возможности восстановления.</p><button class="danger-button" type="button" data-action="delete-account">Удалить аккаунт</button></div></div>`;
     $('#profile-form').addEventListener('submit', updateProfile);
     $('#avatar-input').addEventListener('change', async (event) => {
       const file = event.target.files[0]; if (!file) return;
@@ -782,6 +784,10 @@
       if (error?.status === 409) showErrors(form, [[/phone/i.test(error.detail || '') ? 'phone_number' : 'email', apiError(error)]]);
       else if (!applyApiFieldErrors(form, error)) notify(apiError(error), 'error');
     } finally { busy(button, false); }
+  }
+  async function deleteAccount() {
+    if (!await confirmDialog('Удалить аккаунт и все принадлежащие только вам данные?', 'Удалить аккаунт')) return;
+    try { await request('/user/del', { method: 'DELETE' }); localStorage.removeItem(TOKEN_KEY); location.reload(); } catch (error) { notify(apiError(error), 'error'); }
   }
   function emailVerifyModal(email) {
     openModal(`<h2>Подтвердите email</h2><p class="muted">Мы отправили 6-значный код на <strong>${escapeHtml(email)}</strong>. Код действует 15 минут.</p><form id="email-verify-form" novalidate><div class="field"><label for="modal-code">Код подтверждения</label><input id="modal-code" name="code" class="code-input" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></div><button class="primary-button" type="submit">Подтвердить</button></form><button class="secondary-button" type="button" id="modal-resend">Отправить код ещё раз</button><p class="resend-status" id="modal-resend-status">${USE_MOCK_API ? 'Демо-режим: код 123456' : ''}</p>`);
@@ -840,7 +846,7 @@
   async function loadRemotePhotos() {
     if (USE_MOCK_API) return;
     await Promise.all(state.pets.map(fetchPhoto));
-    $$('[data-photo-id]').forEach((image) => { const url = state.photoUrls[image.dataset.photoId]; if (url) image.src = url; else image.replaceWith(document.createTextNode('🐾')); });
+    $$('[data-photo-id]').forEach((image) => { const url = state.photoUrls[image.dataset.photoId]; if (url) image.src = url; else image.replaceWith(document.createElement('span')); });
   }
   async function deleteItem(type, id, date) {
     const pet = type === 'pet' ? state.pets.find((item) => item.id === Number(id)) : null; const prop = type === 'prop' ? state.props.find((item) => item.id === Number(id)) : null;
@@ -874,7 +880,9 @@
     all('[data-action="delete-pet"]').forEach((b) => b.addEventListener('click', (event) => { event.stopPropagation(); deleteItem('pet', b.dataset.id); }));
     all('[data-action="edit-prop"]').forEach((b) => b.addEventListener('click', () => { const prop = state.props.find((p) => p.id === Number(b.dataset.id)); if (prop) (prop.category === 'food' ? foodForm : recordForm)(prop, { date: b.dataset.date }); }));
     all('[data-action="delete-prop"]').forEach((b) => b.addEventListener('click', () => deleteItem('prop', b.dataset.id, b.dataset.date)));
-    all('[data-action="zoom-photo"]').forEach((b) => b.addEventListener('click', () => { const image = b.querySelector('img'); if (image?.src) openPhoto(image.src, image.alt); }));
+    all('[data-action="zoom-photo"],[data-action="zoom-avatar"]').forEach((b) => b.addEventListener('click', () => { const image = b.querySelector('img'); if (image?.src) openPhoto(image.src, image.alt); }));
+    all('[data-action="rate-food"]').forEach((b) => b.addEventListener('click', async () => { const item = state.props.find((p) => p.id === Number(b.dataset.id)); if (!item) return; b.disabled = true; try { const saved = await request(`/prop/edit?prop_id=${item.id}`, { method: 'PUT', body: propBody({ ...item, liked: b.dataset.value === 'true' }, item) }); state.props = state.props.map((p) => p.id === saved.id ? saved : p); renderPage(); notify(b.dataset.value === 'true' ? 'Корм отмечен как понравившийся' : 'Корм отмечен как непонравившийся'); } catch (error) { b.disabled = false; notify(apiError(error), 'error'); } }));
+    all('[data-action="delete-account"]').forEach((b) => b.addEventListener('click', deleteAccount));
     all('[data-action="delete-weight"]').forEach((b) => b.addEventListener('click', async () => { if (!await confirmDialog('Удалить это измерение веса?')) return; const store = extras(); store.weights[state.healthPet] = (store.weights[state.healthPet] || []).filter((w) => String(w.id) !== b.dataset.id); saveExtras(store); renderPage(); notify('Измерение удалено'); }));
     all('[data-action="open-notifications"]').forEach((b) => b.addEventListener('click', openNotifications));
     all('[data-goto]').forEach((b) => b.addEventListener('click', () => navigate(b.dataset.goto, { healthPet: b.dataset.goto === 'health' && b.dataset.pet ? b.dataset.pet : undefined, foodPet: b.dataset.goto === 'food' && b.dataset.pet ? b.dataset.pet : undefined })));
@@ -916,7 +924,6 @@
     if (register && el.authName.value.trim().length < 2) errors.push(['name', 'Введите имя — минимум 2 символа.']);
     if (!/^\S+@\S+\.\S+$/.test(email)) errors.push(['email', 'Введите корректный email, например name@mail.ru']);
     if (password.length < 6) errors.push(['passwd', 'Пароль должен быть не короче 6 символов.']);
-    if (register && !el.terms.checked) errors.push(['terms', 'Нужно принять условия использования.']);
     if (!showErrors(el.authForm, errors)) return;
     busy(el.authSubmit, true, 'Подождите…');
     try {

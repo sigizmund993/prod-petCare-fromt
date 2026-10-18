@@ -36,6 +36,8 @@
   const MAX_PHOTO_SIZE = 5 * 1024 * 1024;
   const MAX_COURSE_DOSES = 120;
   const POLL_INTERVAL = 45000;
+  const CHAT_INTERVAL = 4000;
+  const CHAT_LIMIT = 50;
   const icon = (name, label = '') => `<svg class="svg-icon" aria-hidden="true"${label ? ` title="${escapeHtml(label)}"` : ''}><use href="icons.svg#${name}"></use></svg>`;
   const ERROR_TEXT = {
     'Invalid credentials': 'Неверный email или пароль.',
@@ -48,6 +50,9 @@
     'Prop not found': 'Запись не найдена — возможно, она уже удалена.',
     'Notification not found': 'Уведомление уже прочитано.',
     'Community not found': 'Сообщество не найдено — возможно, оно уже удалено.',
+    'Message not found': 'Сообщение не найдено — возможно, оно уже удалено.',
+    'Not a member': 'Для доступа к чату вступите в сообщество.',
+    'Only the author can do this': 'Редактировать сообщение может только автор.',
     'Not authenticated': 'Нужно войти в аккаунт.',
     'User not found': 'Пользователь не найден.',
   };
@@ -58,6 +63,7 @@
     healthPet: '', healthTab: 'all', foodPet: '', foodLiked: '', foodSuitable: '', remindersPet: '', remindersType: '', remindersDate: '',
     procedureView: 'list', calendarMonth: new Date(now.getFullYear(), now.getMonth(), 1), calendarSelectedDate: '',
     communities: [], communityQuery: '', communityMine: false, communityId: null, communityMembers: [], communityLoading: false, communityError: '', communityVersion: 0,
+    chatOpen: false, chatMessages: [], chatHasOlder: false, chatLoading: false, chatError: '', chatTimer: null, chatVersion: 0, chatPolling: false,
   };
   const $ = (selector) => document.querySelector(selector);
   const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -129,7 +135,7 @@
   }
 
   // ---------- Демо-режим (?demo=1): имитация API в localStorage ----------
-  function mockStore() { const store = JSON.parse(localStorage.getItem('petcare_mock_store') || '{"users":{},"pets":[],"props":[]}'); store.reads ||= {}; store.birthdayReads ||= {}; store.communities ||= []; store.nextId ||= Math.max(100, ...store.pets.map((p) => p.id), ...store.props.map((p) => p.id), ...store.communities.map((c) => c.id)) + 1; return store; }
+  function mockStore() { const store = JSON.parse(localStorage.getItem('petcare_mock_store') || '{"users":{},"pets":[],"props":[]}'); store.reads ||= {}; store.birthdayReads ||= {}; store.communities ||= []; store.messages ||= []; store.nextId ||= Math.max(100, ...store.pets.map((p) => p.id), ...store.props.map((p) => p.id), ...store.communities.map((c) => c.id), ...store.messages.map((m) => m.id)) + 1; return store; }
   function saveMock(store) { localStorage.setItem('petcare_mock_store', JSON.stringify(store)); }
   function mockApi(path, options = {}) { return new Promise((resolve, reject) => setTimeout(() => { try { resolve(mockHandle(path, options)); } catch (error) { reject(error); } }, 80)); }
   function mockHandle(path, options) {
@@ -143,7 +149,7 @@
     if (route === '/user/login') { const u = byEmail(body.email); if (!u || u.passwd !== body.passwd) fail(401, 'Invalid credentials'); if (!(u.email_verified ?? u.verified)) fail(403, 'Email not verified'); return { access_token: u.token, token_type: 'bearer' }; }
     const token = localStorage.getItem(TOKEN_KEY); const user = Object.values(store.users).find((u) => u.token === token);
     if (!user) fail(401, 'Not authenticated');
-    if (route === '/user/del' && method === 'DELETE') { delete store.users[user.email]; store.pets = store.pets.filter((p) => !(p.own_ids || []).includes(user.id)); store.props = store.props.filter((p) => !(p.own_ids || []).includes(user.id)); store.communities.forEach((c) => { c.member_ids = c.member_ids.filter((id) => id !== user.id); if (c.owner_id === user.id) c.owner_id = c.member_ids[0]; }); store.communities = store.communities.filter((c) => c.member_ids.length); saveMock(store); return null; }
+    if (route === '/user/del' && method === 'DELETE') { delete store.users[user.email]; store.pets = store.pets.filter((p) => !(p.own_ids || []).includes(user.id)); store.props = store.props.filter((p) => !(p.own_ids || []).includes(user.id)); store.communities.forEach((c) => { c.member_ids = c.member_ids.filter((id) => id !== user.id); if (c.owner_id === user.id) c.owner_id = c.member_ids[0]; }); store.communities = store.communities.filter((c) => c.member_ids.length); store.messages = store.messages.filter((m) => store.communities.some((c) => c.id === m.community_id)).map((m) => m.from_id === user.id ? { ...m, from_id: null, from_name: null } : m); saveMock(store); return null; }
     const mine = (item) => (item.own_ids || []).includes(user.id);
     const findPet = (id) => store.pets.find((p) => p.id === Number(id) && mine(p)) || fail(404, 'Pet not found');
     const findProp = (id) => store.props.find((p) => p.id === Number(id) && mine(p)) || fail(404, 'Prop not found');
@@ -176,9 +182,31 @@
     if (route === '/community/get') return findCommunity();
     if (route === '/community/members') { const c = findCommunity(); return c.member_ids.map((id) => Object.values(store.users).find((u) => u.id === id)).filter(Boolean).map((u) => ({ id: u.id, name: u.name })); }
     if (route === '/community/join') { const c = findCommunity(); if (!c.member_ids.includes(user.id)) c.member_ids.push(user.id); saveMock(store); return c; }
-    if (route === '/community/leave') { const c = findCommunity(); if (!c.member_ids.includes(user.id)) fail(403, 'Not community member'); c.member_ids = c.member_ids.filter((id) => id !== user.id); if (c.owner_id === user.id) c.owner_id = c.member_ids[0]; if (!c.member_ids.length) store.communities = store.communities.filter((item) => item !== c); saveMock(store); return null; }
+    if (route === '/community/leave') { const c = findCommunity(); if (!c.member_ids.includes(user.id)) fail(403, 'Not community member'); c.member_ids = c.member_ids.filter((id) => id !== user.id); if (c.owner_id === user.id) c.owner_id = c.member_ids[0]; if (!c.member_ids.length) { store.communities = store.communities.filter((item) => item !== c); store.messages = store.messages.filter((m) => m.community_id !== c.id); } saveMock(store); return null; }
     if (route === '/community/kick') { const c = findCommunity(); if (c.owner_id !== user.id) fail(403, 'Not community owner'); const id = Number(q.get('member_id')); if (id === user.id) fail(400, 'Cannot kick yourself'); if (!c.member_ids.includes(id)) fail(404, 'Member not found'); c.member_ids = c.member_ids.filter((member) => member !== id); saveMock(store); return null; }
-    if (route === '/community/del') { const c = findCommunity(); if (c.owner_id !== user.id) fail(403, 'Not community owner'); store.communities = store.communities.filter((item) => item !== c); saveMock(store); return null; }
+    if (route === '/community/del') { const c = findCommunity(); if (c.owner_id !== user.id) fail(403, 'Not community owner'); store.communities = store.communities.filter((item) => item !== c); store.messages = store.messages.filter((m) => m.community_id !== c.id); saveMock(store); return null; }
+    if (route.startsWith('/message/')) {
+      const c = route === '/message/list' || route === '/message/add' ? findCommunity() : null;
+      const item = c ? null : store.messages.find((m) => m.id === Number(q.get('message_id'))) || fail(404, 'Message not found');
+      const community = c || store.communities.find((entry) => entry.id === item.community_id);
+      if (!community || !community.member_ids.includes(user.id)) fail(c ? 403 : 404, c ? 'Not a member' : 'Message not found');
+      if (route === '/message/list') {
+        if (q.has('before_id') && q.has('after_id')) fail(400, 'Invalid pagination');
+        const limit = q.has('limit') ? Number(q.get('limit')) : 50;
+        if (!Number.isInteger(limit) || limit < 1 || limit > 100) fail(422, 'Invalid limit');
+        const messages = store.messages.filter((m) => m.community_id === c.id && (!q.has('before_id') || m.id < Number(q.get('before_id'))) && (!q.has('after_id') || m.id > Number(q.get('after_id')))).sort((a, b) => a.id - b.id);
+        return q.has('after_id') ? messages.slice(0, limit) : messages.slice(-limit);
+      }
+      if (route === '/message/add' || route === '/message/edit') {
+        if (item && item.from_id !== user.id) fail(403, 'Only the author can do this');
+        const text = String(body.text || '').trim();
+        if (!text || text.length > 4000) fail(422, [{ loc: ['body', 'text'], msg: 'Сообщение должно содержать от 1 до 4000 символов.' }]);
+        const saved = item || { id: store.nextId++, community_id: community.id, from_id: user.id, from_name: user.name, created_at: new Date().toISOString(), edited_at: null };
+        saved.text = text; if (item) saved.edited_at = new Date().toISOString(); else store.messages.push(saved);
+        saveMock(store); return saved;
+      }
+      if (route === '/message/del') { if (item.from_id !== user.id && community.owner_id !== user.id) fail(403, 'Only the author or owner can do this'); store.messages = store.messages.filter((m) => m !== item); saveMock(store); return null; }
+    }
     if (route === '/pet/list') return store.pets.filter(mine).sort((a, b) => a.id - b.id);
     if (route === '/pet/get') return findPet(q.get('pet_id'));
     if (route === '/pet/add') { validatePet(); const item = { id: store.nextId++, name: body.name, type: body.type ?? null, breed: body.breed ?? null, birth_date: body.birth_date ?? null, own_ids: withOwner(body.own_ids), prop_ids: body.prop_ids || [], has_picture: false }; store.pets.push(item); saveMock(store); return item; }
@@ -340,7 +368,7 @@
   }
   function sessionExpired() {
     if (!state.user) return;
-    localStorage.removeItem(TOKEN_KEY); state.user = null; clearInterval(state.pollTimer); closeModal();
+    localStorage.removeItem(TOKEN_KEY); stopChat(); state.user = null; clearInterval(state.pollTimer); closeModal();
     el.appScreen.classList.add('is-hidden'); el.authScreen.classList.remove('is-hidden'); el.verifyView.classList.add('is-hidden'); el.authView.classList.remove('is-hidden');
     setAuthMode('login'); message(el.authMessage, 'Сессия истекла. Войдите снова.', 'error');
   }
@@ -437,7 +465,7 @@
   function openPhoto(src, alt = '') { openModal(`<img class="photo-zoom" src="${escapeHtml(src)}" alt="${escapeHtml(alt)}">`, 'modal-photo'); }
 
   // ---------- Страницы ----------
-  function navigate(page, options = {}) { state.page = page; state.selectedPet = options.selectedPet ?? null; if (options.healthPet !== undefined) state.healthPet = options.healthPet; if (options.foodPet !== undefined) state.foodPet = options.foodPet; renderPage(); window.scrollTo?.(0, 0); }
+  function navigate(page, options = {}) { if (page !== 'communities') stopChat(); state.page = page; state.selectedPet = options.selectedPet ?? null; if (options.healthPet !== undefined) state.healthPet = options.healthPet; if (options.foodPet !== undefined) state.foodPet = options.foodPet; renderPage(); window.scrollTo?.(0, 0); }
   function renderPage() {
     const titles = { dashboard: 'Обзор', pets: 'Мои питомцы', health: 'Карта здоровья', food: 'Питание', reminders: 'Напоминания', communities: 'Сообщества', profile: 'Аккаунт' };
     if (!titles[state.page]) state.page = 'dashboard';
@@ -451,6 +479,7 @@
 
   // ---------- Сообщества ----------
   function communityPath(action, id) { return `/community/${action}?community_id=${encodeURIComponent(id)}`; }
+  function stopChat() { clearInterval(state.chatTimer); state.chatTimer = null; state.chatOpen = false; state.chatVersion++; state.chatPolling = false; state.chatLoading = false; state.chatMessages = []; state.chatError = ''; }
   async function loadCommunities() {
     const version = ++state.communityVersion;
     state.communityLoading = true; state.communityError = ''; renderCommunities();
@@ -470,7 +499,7 @@
         } catch (error) {
           if (version !== state.communityVersion) return;
           if (error?.status !== 404) throw error;
-          state.communityId = null; notify(apiError(error), 'error');
+          stopChat(); state.communityId = null; notify(apiError(error), 'error');
         }
       }
     } catch (error) { if (version === state.communityVersion) state.communityError = apiError(error); }
@@ -485,14 +514,21 @@
       <form id="community-search" class="community-filters"><div class="field"><label for="community-query">Поиск по названию</label><input id="community-query" name="q" value="${escapeHtml(state.communityQuery)}" placeholder="Например, любители кошек"></div><button class="outline-button" type="submit">Найти</button><label class="checkbox-row"><input id="community-mine" type="checkbox" ${state.communityMine ? 'checked' : ''}> Только мои</label></form>
       ${state.communityError ? `<div class="message is-visible error" role="alert">${escapeHtml(state.communityError)} <button id="community-retry" type="button">Повторить</button></div>` : ''}
       ${state.communityLoading ? '<p class="muted" role="status">Загружаем сообщества…</p>' : selected ? `<div class="community-detail card"><button class="back-button" id="community-back" type="button">← К списку</button><div class="section-title"><h2>${escapeHtml(selected.name)}</h2><span class="muted">${selected.member_ids.length} ${plural(selected.member_ids.length, ['участник', 'участника', 'участников'])}</span></div><p class="community-description">${selected.description ? escapeHtml(selected.description) : 'Описание не добавлено.'}</p><p class="muted">${owner(selected) ? 'Вы владелец' : mine(selected) ? 'Вы участник' : 'Вы ещё не участник'} · Создано ${escapeHtml(formatDate(selected.created_at, false))}</p><div class="community-actions">${owner(selected) ? `<button class="outline-button" id="community-edit" type="button">Редактировать</button><button class="danger-button" id="community-delete" type="button">Удалить</button>` : ''}${mine(selected) ? '<button class="outline-button" id="community-leave" type="button">Выйти</button>' : '<button class="primary-button compact-button" id="community-join" type="button">Вступить</button>'}</div><h3>Участники</h3><ul class="community-members">${state.communityMembers.map((m) => `<li><span>${escapeHtml(m.name)}${m.id === selected.owner_id ? ' · владелец' : ''}${m.id === state.user.id ? ' · вы' : ''}</span>${owner(selected) && m.id !== state.user.id ? `<button class="danger-button" type="button" data-kick="${m.id}">Исключить</button>` : ''}</li>`).join('')}</ul></div>` : `<div class="community-grid">${state.communities.length ? state.communities.map((c) => `<article class="card community-card"><h3>${escapeHtml(c.name)}</h3><p class="muted">${c.description ? escapeHtml(c.description) : 'Описание не добавлено.'}</p><div class="community-card-footer"><span class="muted">${c.member_ids.length} ${plural(c.member_ids.length, ['участник', 'участника', 'участников'])}${mine(c) ? ' · Вы участник' : ''}</span><button class="outline-button" type="button" data-community="${c.id}">Подробнее</button></div></article>`).join('') : '<div class="empty-state">Сообществ не найдено. Попробуйте другой запрос или создайте своё.</div>'}</div>`}`;
+    if (selected && !state.communityLoading && mine(selected)) {
+      const detail = el.pageContent.querySelector('.community-detail');
+      detail.querySelector('.community-actions').insertAdjacentHTML('afterbegin', '<button class="primary-button compact-button" id="community-chat" type="button">Открыть чат</button>');
+      detail.insertAdjacentHTML('afterend', '<div id="community-chat-slot"></div>');
+      if (state.chatOpen) renderChat();
+    } else if (selected && !mine(selected) && state.chatOpen) stopChat();
     $('#community-create').addEventListener('click', () => communityForm());
-    $('#community-search').addEventListener('submit', (event) => { event.preventDefault(); state.communityQuery = $('#community-query').value; state.communityId = null; loadCommunities(); });
-    $('#community-mine').addEventListener('change', (event) => { state.communityMine = event.target.checked; state.communityQuery = $('#community-query').value; state.communityId = null; loadCommunities(); });
+    $('#community-search').addEventListener('submit', (event) => { event.preventDefault(); state.communityQuery = $('#community-query').value; stopChat(); state.communityId = null; loadCommunities(); });
+    $('#community-mine').addEventListener('change', (event) => { state.communityMine = event.target.checked; state.communityQuery = $('#community-query').value; stopChat(); state.communityId = null; loadCommunities(); });
     $('#community-retry')?.addEventListener('click', loadCommunities);
-    $$('[data-community]').forEach((b) => b.addEventListener('click', () => { state.communityId = Number(b.dataset.community); loadCommunities(); }));
-    $('#community-back')?.addEventListener('click', () => { state.communityId = null; state.communityVersion++; state.communityLoading = false; renderCommunities(); });
+    $$('[data-community]').forEach((b) => b.addEventListener('click', () => { stopChat(); state.communityId = Number(b.dataset.community); loadCommunities(); }));
+    $('#community-back')?.addEventListener('click', () => { stopChat(); state.communityId = null; state.communityVersion++; state.communityLoading = false; renderCommunities(); });
     $('#community-edit')?.addEventListener('click', () => communityForm(selected));
     $('#community-join')?.addEventListener('click', (event) => communityAction(event.currentTarget, 'join', selected.id, 'Вы вступили в сообщество'));
+    $('#community-chat')?.addEventListener('click', () => openChat(selected.id));
     $('#community-leave')?.addEventListener('click', async (event) => {
       const button = event.currentTarget;
       if (!await confirmDialog(owner(selected) ? 'После выхода управление сообществом перейдёт первому из оставшихся участников. Если вы последний участник, сообщество удалится.' : 'Выйти из сообщества?', 'Выйти')) return;
@@ -503,7 +539,7 @@
   }
   async function communityAction(button, action, id, success, back = false, method = 'POST', suffix = '') {
     busy(button, true, 'Подождите…');
-    try { await request(communityPath(action, id) + suffix, { method }); if (back) state.communityId = null; await loadCommunities(); notify(success); }
+    try { await request(communityPath(action, id) + suffix, { method }); if (back || action === 'kick' && state.chatOpen) stopChat(); if (back) state.communityId = null; await loadCommunities(); notify(success); }
     catch (error) { notify(apiError(error), 'error'); busy(button, false); }
   }
   function communityForm(community = null) {
@@ -516,6 +552,108 @@
       catch (error) { if (!applyApiFieldErrors(form, error)) notify(apiError(error), 'error'); busy(button, false); }
     });
     $('#community-name').focus();
+  }
+
+  // ---------- Чат сообщества ----------
+  function messagePath(action, id) { return `/message/${action}?message_id=${encodeURIComponent(id)}`; }
+  function chatListPath(id, extra = '') { return `/message/list?community_id=${encodeURIComponent(id)}${extra}`; }
+  function mergeChatMessages(items) {
+    const messages = new Map(state.chatMessages.map((m) => [m.id, m]));
+    items.forEach((m) => messages.set(m.id, m));
+    state.chatMessages = [...messages.values()].sort((a, b) => a.id - b.id);
+  }
+  function chatActive(id, version) { return state.chatOpen && state.chatVersion === version && state.communityId === id && state.page === 'communities'; }
+  function chatScrollBottom() { const list = $('#chat-messages'); if (list) list.scrollTop = list.scrollHeight; }
+  async function openChat(id) {
+    stopChat(); state.chatOpen = true; state.chatLoading = true; state.chatHasOlder = false;
+    const version = state.chatVersion; renderCommunities();
+    try {
+      const items = await request(chatListPath(id));
+      if (!chatActive(id, version)) return;
+      state.chatMessages = items; state.chatHasOlder = items.length === CHAT_LIMIT;
+      state.chatLoading = false; renderChat(); chatScrollBottom();
+      state.chatTimer = setInterval(() => pollChat(id, version), CHAT_INTERVAL);
+    } catch (error) { if (chatActive(id, version)) { state.chatLoading = false; state.chatError = apiError(error); renderChat(); } }
+  }
+  async function pollChat(id, version) {
+    if (!chatActive(id, version) || state.chatPolling || document.hidden) return;
+    state.chatPolling = true;
+    try {
+      let lastId = state.chatMessages.at(-1)?.id || 0;
+      while (chatActive(id, version)) {
+        const items = await request(chatListPath(id, `&after_id=${lastId}&limit=${CHAT_LIMIT}`));
+        if (!chatActive(id, version)) return;
+        if (!items.length) break;
+        const list = $('#chat-messages'); const nearBottom = list && list.scrollHeight - list.scrollTop - list.clientHeight < 90;
+        mergeChatMessages(items); state.chatError = ''; renderChatMessages();
+        if (nearBottom) chatScrollBottom();
+        lastId = items.at(-1).id;
+        if (items.length < CHAT_LIMIT) break;
+      }
+    } catch (error) { if (chatActive(id, version)) { state.chatError = apiError(error); if (error?.status === 403 || error?.status === 404) { clearInterval(state.chatTimer); state.chatTimer = null; } renderChatStatus(); } }
+    finally { state.chatPolling = false; }
+  }
+  async function loadOlderChat(id) {
+    const firstId = state.chatMessages[0]?.id;
+    if (!firstId || state.chatLoading || !state.chatHasOlder) return;
+    const version = state.chatVersion; state.chatLoading = true; renderChatHistoryButton();
+    const list = $('#chat-messages'); const oldHeight = list?.scrollHeight || 0; const oldTop = list?.scrollTop || 0;
+    try {
+      const items = await request(chatListPath(id, `&before_id=${firstId}&limit=${CHAT_LIMIT}`));
+      if (!chatActive(id, version)) return;
+      state.chatHasOlder = items.length === CHAT_LIMIT; mergeChatMessages(items); state.chatError = '';
+      renderChatMessages(); if (list) list.scrollTop = oldTop + list.scrollHeight - oldHeight;
+    } catch (error) { if (chatActive(id, version)) { state.chatError = apiError(error); renderChatStatus(); } }
+    finally { if (chatActive(id, version)) { state.chatLoading = false; renderChatHistoryButton(); } }
+  }
+  function renderChatStatus() { const node = $('#chat-status'); if (node) { node.textContent = state.chatError; node.classList.toggle('is-hidden', !state.chatError); } }
+  function renderChatHistoryButton() { const button = $('#chat-older'); if (button) { button.classList.toggle('is-hidden', !state.chatHasOlder); busy(button, state.chatLoading, 'Загружаем…'); } }
+  function renderChatMessages() {
+    const list = $('#chat-messages'); if (!list) return;
+    const community = state.communities.find((c) => c.id === state.communityId);
+    list.innerHTML = state.chatMessages.length ? state.chatMessages.map((m) => `<article class="chat-message${m.from_id === state.user.id ? ' chat-own' : ''}"><div class="chat-message-head"><strong>${escapeHtml(m.from_name || 'Удалённый пользователь')}</strong><time datetime="${escapeHtml(m.created_at)}">${escapeHtml(formatDate(m.created_at))}</time></div><p>${escapeHtml(m.text)}</p><div class="chat-message-foot">${m.edited_at ? '<small class="muted">Изменено</small>' : ''}${m.from_id === state.user.id ? `<button class="text-button" type="button" data-chat-edit="${m.id}">Изменить</button>` : ''}${m.from_id === state.user.id || community?.owner_id === state.user.id ? `<button class="text-button chat-delete" type="button" data-chat-delete="${m.id}">Удалить</button>` : ''}</div></article>`).join('') : '<p class="muted chat-empty">Сообщений пока нет. Начните обсуждение!</p>';
+    list.querySelectorAll('[data-chat-edit]').forEach((button) => button.addEventListener('click', () => editChatMessage(Number(button.dataset.chatEdit))));
+    list.querySelectorAll('[data-chat-delete]').forEach((button) => button.addEventListener('click', () => deleteChatMessage(Number(button.dataset.chatDelete))));
+    renderChatStatus(); renderChatHistoryButton();
+  }
+  function renderChat() {
+    const slot = $('#community-chat-slot'); if (!slot || !state.chatOpen) return;
+    slot.innerHTML = `<section class="community-chat card" aria-label="Чат сообщества"><div class="section-title"><h3>Чат сообщества</h3><button id="chat-close" class="outline-button" type="button">Закрыть чат</button></div>${state.chatLoading && !state.chatMessages.length ? '<p class="muted" role="status">Загружаем сообщения…</p>' : state.chatError && !state.chatMessages.length ? '<button id="chat-retry" class="outline-button" type="button">Повторить загрузку</button>' : `<div class="chat-history"><button id="chat-older" class="outline-button is-hidden" type="button">Загрузить старые сообщения</button><div id="chat-messages" class="chat-messages" role="log" aria-label="Сообщения"></div></div><form id="chat-form" novalidate><div class="field"><label for="chat-text">Ваше сообщение</label><textarea id="chat-text" name="text" maxlength="4000" rows="3" placeholder="Напишите сообщение…"></textarea></div><button class="primary-button compact-button" type="submit">Отправить</button></form>`}<p id="chat-status" class="message error is-hidden" role="alert"></p></section>`;
+    $('#chat-close').addEventListener('click', () => { stopChat(); renderCommunities(); });
+    $('#chat-retry')?.addEventListener('click', () => openChat(state.communityId));
+    $('#chat-older')?.addEventListener('click', () => loadOlderChat(state.communityId));
+    $('#chat-messages')?.addEventListener('scroll', (event) => { if (event.target.scrollTop < 40) loadOlderChat(state.communityId); });
+    $('#chat-form')?.addEventListener('submit', sendChatMessage);
+    renderChatMessages(); renderChatStatus();
+  }
+  async function sendChatMessage(event) {
+    event.preventDefault(); const form = event.target; const text = form.elements.text.value.trim();
+    if (!showErrors(form, !text || text.length > 4000 ? [['text', 'Сообщение должно содержать от 1 до 4000 символов.']] : [])) return;
+    const id = state.communityId; const version = state.chatVersion; const button = form.querySelector('[type="submit"]'); busy(button, true, 'Отправляем…');
+    try { const saved = await request(`/message/add?community_id=${id}`, { method: 'POST', body: { text } }); if (!chatActive(id, version)) return; form.elements.text.value = ''; mergeChatMessages([saved]); state.chatError = ''; renderChatMessages(); chatScrollBottom(); form.elements.text.focus(); }
+    catch (error) { if (chatActive(id, version) && !applyApiFieldErrors(form, error)) { state.chatError = apiError(error); renderChatStatus(); } }
+    finally { busy(button, false); }
+  }
+  function editChatMessage(id) {
+    const item = state.chatMessages.find((m) => m.id === id); if (!item || item.from_id !== state.user.id) return;
+    const communityId = state.communityId; const version = state.chatVersion;
+    openModal(`<h2>Редактировать сообщение</h2><form id="chat-edit-form" novalidate><div class="field"><label for="chat-edit-text">Текст сообщения</label><textarea id="chat-edit-text" name="text" maxlength="4000" rows="5">${escapeHtml(item.text)}</textarea></div><div class="form-actions"><button class="secondary-button" type="button" data-close-modal>Отмена</button><button class="primary-button" type="submit">Сохранить</button></div></form>`);
+    $('#chat-edit-form').addEventListener('submit', async (event) => {
+      event.preventDefault(); const form = event.target; const text = form.elements.text.value.trim();
+      if (!showErrors(form, !text || text.length > 4000 ? [['text', 'Сообщение должно содержать от 1 до 4000 символов.']] : [])) return;
+      const button = form.querySelector('[type="submit"]'); busy(button, true);
+      try { const saved = await request(messagePath('edit', id), { method: 'PUT', body: { text } }); if (!chatActive(communityId, version)) return; closeModal(); mergeChatMessages([saved]); renderChatMessages(); notify('Сообщение изменено'); }
+      catch (error) { if (!applyApiFieldErrors(form, error)) notify(apiError(error), 'error'); busy(button, false); }
+    });
+    $('#chat-edit-text').focus();
+  }
+  async function deleteChatMessage(id) {
+    const item = state.chatMessages.find((m) => m.id === id); const community = state.communities.find((c) => c.id === state.communityId);
+    if (!item || item.from_id !== state.user.id && community?.owner_id !== state.user.id) return;
+    if (!await confirmDialog('Удалить сообщение?')) return;
+    const communityId = state.communityId; const version = state.chatVersion;
+    try { await request(messagePath('del', id), { method: 'DELETE' }); if (!chatActive(communityId, version)) return; state.chatMessages = state.chatMessages.filter((m) => m.id !== id); renderChatMessages(); notify('Сообщение удалено'); }
+    catch (error) { notify(apiError(error), 'error'); }
   }
 
   function renderDashboard() {

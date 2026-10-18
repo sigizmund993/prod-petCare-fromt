@@ -85,7 +85,6 @@ h1,h2,h3,.brand-panel h1,.topbar h1,.card-heading h2{font-family:'DM Sans',Arial
 .pet-photo{height:170px}
 .pet-card-body{padding:14px 16px 16px}
 .pet-card-body h3{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;line-height:1.25}
-.pet-card-body .pet-delete-button{display:block;width:100%;margin-top:8px;padding:8px 10px;font-size:13px}
 .pet-profile-actions{display:flex;flex-wrap:wrap;gap:8px}
 
 @media(max-width:800px){.dashboard-grid{grid-template-columns:1fr}.pet-grid,.dashboard-pets .pet-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -226,3 +225,78 @@ body.modal-open{overflow:hidden}
   .notification-item{flex-wrap:wrap}.notification-item .outline-button{margin-left:54px}
 }
 @media(max-width:480px){.field-row{grid-template-columns:1fr;gap:0}.summary-grid{grid-template-columns:1fr 1fr}.pet-photo{height:120px}.topbar h1{font-size:24px}}
+
+/* Логотип в боковой панели — ссылка на «Обзор» */
+.sidebar-logo{padding:0;border:0;color:inherit;background:transparent;font-family:inherit;text-align:left;cursor:pointer}
+.sidebar-logo:hover{color:#fff}
+
+/* Боковая панель: закреплена по высоте экрана, сворачивается до иконок */
+.sidebar{position:sticky;top:0;flex:none;height:100vh;overflow-y:auto;transition:width .2s}
+.sidebar-toggle{display:flex;align-items:center;gap:13px;margin-top:auto;padding:13px 14px;border:0;border-radius:10px;color:#c4d9ca;background:transparent;text-align:left;font-size:19px}
+.sidebar-toggle span{font-size:14px}
+.sidebar-toggle:hover{color:#fff;background:#ffffff1c}
+.sidebar-toggle b{display:inline-block;width:22px;text-align:center;font-weight:400;transition:transform .2s}
+.sidebar-collapsed .sidebar{width:84px;padding-right:12px;padding-left:12px}
+.sidebar-collapsed .sidebar-logo{justify-content:center;margin-right:0;margin-left:0}
+.sidebar-collapsed .sidebar-logo span,.sidebar-collapsed .nav-link span,.sidebar-collapsed .sidebar-toggle span{display:none}
+.sidebar-collapsed .nav-link,.sidebar-collapsed .sidebar-toggle{justify-content:center;padding-right:0;padding-left:0}
+.sidebar-collapsed .sidebar-toggle b{transform:rotate(180deg)}
+
+/* Меню аккаунта справа сверху */
+.user-menu-wrap{position:relative}
+.user-chip span:first-child{overflow:hidden;box-shadow:var(--shadow)}
+.user-chip span:first-child img{width:100%;height:100%;object-fit:cover}
+.user-chip:focus-visible span:first-child{outline:3px solid #5b937766;outline-offset:2px}
+.user-menu{position:absolute;z-index:9;top:calc(100% + 8px);right:0;display:grid;min-width:220px;padding:6px;border:1px solid var(--line);border-radius:13px;background:#fff;box-shadow:0 18px 45px #173c2b26}
+.user-menu-head{display:grid;gap:2px;padding:10px 12px 12px;margin-bottom:4px;border-bottom:1px solid var(--line)}
+.user-menu-head strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.user-menu-head small{overflow:hidden;color:var(--muted);text-overflow:ellipsis;white-space:nowrap}
+.user-menu-item{padding:11px 12px;border:0;border-radius:9px;color:var(--text);background:transparent;font-weight:600;text-align:left}
+.user-menu-item:hover{background:var(--mint)}
+.user-menu-item.danger{color:#a53e3e}
+.user-menu-item.danger:hover{background:#fcecec}
+
+/* Аватар в аккаунте */
+.avatar-card{display:flex;gap:20px;align-items:center;margin-bottom:18px}
+.avatar-card h2{margin:0 0 4px}
+.avatar-card p{margin:0 0 12px}
+.profile-avatar{display:grid;flex:none;place-items:center;margin:0;overflow:hidden;color:#fff;background:var(--green);font-size:34px;font-weight:700}
+.profile-avatar img{width:100%;height:100%;object-fit:cover}
+.file-button{position:relative;display:inline-flex;align-items:center;cursor:pointer}
+.file-button input{position:absolute;width:1px;height:1px;opacity:0}
+.file-button:focus-within{box-shadow:0 0 0 3px #5b937744}
+.file-button.is-busy{opacity:.6;pointer-events:none}
+
+/* Фото питомца крупнее */
+.photo-zoom-trigger{flex:none;padding:0;border:0;border-radius:50%;background:transparent;cursor:zoom-in}
+.photo-zoom-trigger:focus-visible{outline:3px solid #5b937766;outline-offset:3px}
+.modal-card.modal-photo{width:auto;max-width:min(94vw,960px);padding:10px;background:#fff}
+.modal-photo .modal-close{top:16px;right:16px;z-index:1;display:grid;place-items:center;width:36px;height:36px;border-radius:50%;color:#fff;background:#102c22aa;font-size:22px;line-height:1}
+.photo-zoom{display:block;max-width:100%;max-height:84vh;border-radius:12px;object-fit:contain}
+
+/* Календарь: число и события прижаты к левому верхнему углу ячейки */
+.calendar-cell{display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;color:var(--text)}
+.calendar-cell strong{text-align:left}
+
+/* Чекбоксы внутри полей: обычного размера, подпись сбоку */
+.field .checkbox-row{display:flex;align-items:center;gap:9px;margin:0;color:var(--text);font-size:14px;font-weight:500;cursor:pointer}
+.field input[type=checkbox],.field input[type=radio],.checkbox-row input{flex:none;width:18px;height:18px;min-height:0;margin:0;padding:0;accent-color:var(--green)}
+.checkbox-grid{gap:10px 22px}
+.field .checkbox-row+.field-error{margin-top:6px}
+
+/* Повторы и выбор «эта дата / все» */
+.weekday-picker .segment span{min-width:46px;text-align:center}
+.scope-field{padding:14px;border-radius:12px;background:var(--mint)}
+.scope-field .segment span{background:#fff}
+.choice-list{display:grid;gap:10px}
+.choice-list .secondary-button{margin-top:0}
+#repeat-block>.checkbox-row{align-items:center;margin:0 0 16px;color:var(--text);font-size:14px;cursor:pointer}
+
+@media(max-width:800px){
+  .sidebar{position:static;height:auto;overflow:visible}
+  .sidebar-toggle{display:none}
+  .sidebar-collapsed .sidebar{width:100%;padding:12px 15px}
+  .sidebar-collapsed .sidebar-logo{justify-content:flex-start}.sidebar-collapsed .sidebar-logo span{display:inline}
+  .sidebar-collapsed .nav-link{padding:9px 11px}
+  .avatar-card{align-items:flex-start}
+}

@@ -23,7 +23,14 @@
   const HEALTH_CATEGORIES = ['vaccination', 'parasites', 'vet_visit', 'medication'];
   const NEXT_INTERVALS = [['', 'Не планировать'], ['1', 'Через 1 месяц'], ['3', 'Через 3 месяца'], ['6', 'Через 6 месяцев'], ['12', 'Через 1 год']];
   const DEFAULT_NEXT = { vaccination: '12', parasites: '3' };
-  const PERIODS = [['ежедневно', 'Каждый день'], ['еженедельно', 'Каждую неделю'], ['ежемесячно', 'Каждый месяц'], ['ежегодно', 'Каждый год']];
+  const PERIODS = [['ежедневно', 'Каждый день'], ['еженедельно', 'Каждую неделю'], ['ежемесячно', 'Каждый месяц'], ['ежегодно', 'Каждый год'], ['weekdays', 'По дням недели'], ['custom', 'Свой интервал…']];
+  const PRESET_UNITS = { ежедневно: 'day', еженедельно: 'week', ежемесячно: 'month', ежегодно: 'year' };
+  const UNIT_FORMS = { day: ['день', 'дня', 'дней'], week: ['неделю', 'недели', 'недель'], month: ['месяц', 'месяца', 'месяцев'], year: ['год', 'года', 'лет'] };
+  const WEEKDAYS = [[1, 'Пн'], [2, 'Вт'], [3, 'Ср'], [4, 'Чт'], [5, 'Пт'], [6, 'Сб'], [0, 'Вс']];
+  // В приёмах курса номер хранится в конце комментария: «1 таблетка · приём 2 из 7»
+  const COURSE_RE = /(?:^| · )приём (\d+) из (\d+)$/;
+  // Отдельной ручки для аватара пользователя в API нет — храним его как фото служебного питомца, скрытого из всех списков
+  const AVATAR_PET = '__petcare_user_avatar__';
   const REACTIONS = { gi: 'Проблемы с ЖКТ', allergy: 'Аллергия', other: 'Другая реакция' };
   const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
   const MAX_PHOTO_SIZE = 5 * 1024 * 1024;
@@ -45,13 +52,13 @@
   const now = new Date();
   const state = {
     user: null, pets: [], props: [], notifications: [], notificationCount: 0, page: 'dashboard', authMode: 'login', verifyEmail: '',
-    editingPet: null, editingProp: null, selectedPet: null, photoUrls: {}, pollTimer: null, confirmResolve: null,
+    editingPet: null, editingProp: null, editingDate: null, selectedPet: null, avatarPet: null, photoUrls: {}, pollTimer: null, confirmResolve: null,
     healthPet: '', healthTab: 'all', foodPet: '', foodLiked: '', foodSuitable: '', remindersPet: '', remindersType: '', remindersDate: '',
     procedureView: 'list', calendarMonth: new Date(now.getFullYear(), now.getMonth(), 1), calendarSelectedDate: '',
   };
   const $ = (selector) => document.querySelector(selector);
   const $$ = (selector) => [...document.querySelectorAll(selector)];
-  const el = { authScreen: $('#auth-screen'), appScreen: $('#app-screen'), authForm: $('#auth-form'), authMessage: $('#auth-message'), authName: $('#auth-name'), authEmail: $('#auth-email'), authPassword: $('#auth-password'), nameField: $('#name-field'), termsField: $('#terms-field'), terms: $('#terms'), authSubmit: $('#auth-submit'), authHint: $('#auth-hint'), verifyView: $('#verify-view'), authView: $('#auth-view'), verifyForm: $('#verify-form'), verifyEmail: $('#verify-email'), verifyCode: $('#verify-code'), verifyMessage: $('#verify-message'), resend: $('#resend-button'), resendStatus: $('#resend-status'), pageTitle: $('#page-title'), pageContent: $('#page-content'), appMessage: $('#app-message'), modal: $('#modal'), modalContent: $('#modal-content'), toast: $('#toast'), bellCount: $('#bell-count') };
+  const el = { authScreen: $('#auth-screen'), appScreen: $('#app-screen'), authForm: $('#auth-form'), authMessage: $('#auth-message'), authName: $('#auth-name'), authEmail: $('#auth-email'), authPassword: $('#auth-password'), nameField: $('#name-field'), termsField: $('#terms-field'), terms: $('#terms'), authSubmit: $('#auth-submit'), authHint: $('#auth-hint'), verifyView: $('#verify-view'), authView: $('#auth-view'), verifyForm: $('#verify-form'), verifyEmail: $('#verify-email'), verifyCode: $('#verify-code'), verifyMessage: $('#verify-message'), resend: $('#resend-button'), resendStatus: $('#resend-status'), pageTitle: $('#page-title'), pageContent: $('#page-content'), appMessage: $('#app-message'), modal: $('#modal'), modalCard: $('.modal-card'), modalContent: $('#modal-content'), toast: $('#toast'), bellCount: $('#bell-count') };
 
   // ---------- Общие помощники ----------
   let toastTimer;
@@ -187,34 +194,85 @@
   function propsOfPet(petId) { return petId ? state.props.filter((prop) => petOf(prop)?.id === Number(petId)) : state.props; }
   function petBody(pet, propIds = pet.prop_ids || []) { return { name: pet.name, type: pet.type ?? null, breed: pet.breed ?? null, birth_date: pet.birth_date ?? null, own_ids: pet.own_ids || [], prop_ids: propIds }; }
   async function updatePetProps(pet, propIds) { const saved = await request(`/pet/edit?pet_id=${pet.id}`, { method: 'PUT', body: petBody(pet, propIds) }); state.pets = state.pets.map((p) => (p.id === saved.id ? saved : p)); }
-  async function linkProps(petId, propIds) { const pet = state.pets.find((p) => p.id === Number(petId)); if (!pet || !propIds.length) return; await updatePetProps(pet, [...new Set([...(pet.prop_ids || []), ...propIds])]); }
-  async function setPropPet(propId, petId) {
-    for (const pet of state.pets.filter((p) => p.id !== Number(petId) && (p.prop_ids || []).includes(propId))) await updatePetProps(pet, pet.prop_ids.filter((id) => id !== propId));
-    if (petId) await linkProps(petId, [propId]);
-    const data = extras(); if (data.props[propId]) { delete data.props[propId].petId; saveExtras(data); }
+  async function linkProps(petId, propIds) { const pet = state.pets.find((p) => p.id === Number(petId)); if (!pet || !propIds.length) return; const ids = [...new Set([...(pet.prop_ids || []), ...propIds])]; if (ids.length !== (pet.prop_ids || []).length) await updatePetProps(pet, ids); }
+  async function setPropsPet(propIds, petId) {
+    for (const pet of state.pets.filter((p) => p.id !== Number(petId) && (p.prop_ids || []).some((id) => propIds.includes(id)))) await updatePetProps(pet, pet.prop_ids.filter((id) => !propIds.includes(id)));
+    if (petId) await linkProps(petId, propIds);
+    const data = extras(); propIds.forEach((id) => { if (data.props[id]) delete data.props[id].petId; }); saveExtras(data);
   }
-  async function createProps(bodies) { const ids = []; for (let i = 0; i < bodies.length; i += 5) { const saved = await Promise.all(bodies.slice(i, i + 5).map((body) => request('/prop/add', { method: 'POST', body }))); ids.push(...saved.map((item) => item.id)); } return ids; }
+  // Запросы пачками по 5, чтобы не завалить сервер при курсе из десятков приёмов
+  async function inBatches(items, send) { const result = []; for (let i = 0; i < items.length; i += 5) result.push(...await Promise.all(items.slice(i, i + 5).map(send))); return result; }
+  function createProps(bodies) { return inBatches(bodies, (body) => request('/prop/add', { method: 'POST', body })); }
+  function editProps(entries) { return inBatches(entries, ([id, body]) => request(`/prop/edit?prop_id=${id}`, { method: 'PUT', body })); }
+  // Сервер присылает уведомление о каждой записи, чья дата уже наступила. Запись задним числом — это история, а не напоминание,
+  // поэтому сразу отмечаем её уведомление прочитанным (до перезагрузки данных, пока в state.props старые даты)
+  async function skipPastNotifications(items) {
+    const current = new Date();
+    // У старой записи без смены даты уведомление не трогаем — возможно, пользователь его ещё не видел
+    const past = items.filter((item) => { const before = state.props.find((p) => p.id === item.id); return parseDate(item.date) <= current && (!before || parseDate(before.date) > current || parseDate(before.date).getTime() !== parseDate(item.date).getTime()); });
+    await inBatches(past, (item) => request(`/notification/read?prop_id=${item.id}`, { method: 'POST' }).catch(() => null));
+  }
   function propBody(fields, old) { const food = fields.category === 'food'; return { name: fields.name, date: fields.date, msg: fields.msg || null, text: fields.text || null, rep: !!fields.rep, own_ids: old?.own_ids || [], category: fields.category, liked: food ? fields.liked ?? null : null, suitable: food ? fields.suitable ?? null : null, reactions: food ? fields.reactions || [] : [] }; }
 
   // ---------- События: повторы и дни рождения ----------
   function isRepeating(prop) { return !!prop.rep || (prop.category === 'reminder' && !!propExtra(prop.id).repeat); }
-  function periodOf(prop) { return propExtra(prop.id).period || 'ежедневно'; }
-  function periodLabel(prop) { return (PERIODS.find(([value]) => value === periodOf(prop)) || PERIODS[0])[1]; }
-  // Повторяющаяся запись разворачивается в отдельные даты: исходная + все повторы на ближайший месяц
-  function occurrences(prop) {
-    const start = parseDate(prop.date); if (!isRepeating(prop) || !start || isNaN(start)) return [prop];
-    const period = periodOf(prop); const from = new Date(Math.max(start, startOfDay())); const to = addMonths(from, 1); const result = [];
-    for (let i = 0; i < 20000; i++) {
-      let date;
-      if (period === 'еженедельно') date = addDays(start, 7 * i);
-      else if (period === 'ежемесячно') { const days = new Date(start.getFullYear(), start.getMonth() + i + 1, 0).getDate(); date = new Date(start.getFullYear(), start.getMonth() + i, Math.min(start.getDate(), days), start.getHours(), start.getMinutes()); }
-      else if (period === 'ежегодно') { date = new Date(start); date.setFullYear(start.getFullYear() + i); }
-      else date = addDays(start, i);
-      if (date > to) break;
-      if (i === 0 || date >= from) result.push({ ...prop, date: date.toISOString(), occurrence: true });
-    }
-    return result;
+  // Правило повтора: { every, unit: day|week|month|year, weekdays: [0..6] | null }. Пресеты — частные случаи «раз в 1 …»
+  function ruleFrom(extra, start) {
+    const period = extra.period || 'ежедневно';
+    if (period === 'weekdays') return { every: 1, unit: 'week', weekdays: extra.weekdays?.length ? extra.weekdays : [start.getDay()] };
+    if (period === 'custom') { const unit = UNIT_FORMS[extra.unit] ? extra.unit : 'day'; return { every: Math.max(1, Number(extra.every) || 1), unit, weekdays: unit === 'week' && extra.weekdays?.length ? extra.weekdays : null }; }
+    return { every: 1, unit: PRESET_UNITS[period] || 'day', weekdays: null };
   }
+  function repeatRule(prop) { return ruleFrom(propExtra(prop.id), parseDate(prop.date)); }
+  function ruleLabel({ every, unit, weekdays }) {
+    const days = weekdays?.length && weekdays.length < 7 ? WEEKDAYS.filter(([d]) => weekdays.includes(d)).map(([, label]) => label.toLowerCase()).join(', ') : '';
+    if (every === 1 && weekdays?.length === 7) return 'Каждый день';
+    if (every === 1 && days) return `По ${days}`;
+    const base = every === 1 ? { day: 'Каждый день', week: 'Каждую неделю', month: 'Каждый месяц', year: 'Каждый год' }[unit] : `Раз в ${every} ${plural(every, UNIT_FORMS[unit])}`;
+    return days ? `${base}: ${days}` : base;
+  }
+  function periodLabel(prop) { return ruleLabel(repeatRule(prop)); }
+  // Все даты повтора от start, попадающие в [from, to]
+  function ruleDates(start, rule, from, to) {
+    const dates = []; from = new Date(Math.max(start, from));
+    if (rule.weekdays) {
+      const weekStart = addDays(startOfDay(start), -((start.getDay() + 6) % 7));
+      for (let day = startOfDay(from); day <= to; day = addDays(day, 1)) {
+        const week = Math.floor(Math.round((day - weekStart) / 86400000) / 7);
+        if (week % rule.every || !rule.weekdays.includes(day.getDay())) continue;
+        const date = new Date(day); date.setHours(start.getHours(), start.getMinutes(), 0, 0);
+        if (date >= from && date <= to) dates.push(date);
+      }
+      return dates;
+    }
+    const months = { month: rule.every, year: 12 * rule.every }[rule.unit]; const step = (rule.unit === 'week' ? 7 : 1) * rule.every;
+    // Для дней и недель сразу перескакиваем к началу диапазона, чтобы не перебирать годы истории
+    const first = months ? 0 : Math.max(0, Math.floor((from - start) / (step * 86400000)) - 1);
+    for (let i = first; i < first + 20000; i++) {
+      let date;
+      if (months) { const last = new Date(start.getFullYear(), start.getMonth() + months * i + 1, 0).getDate(); date = new Date(start.getFullYear(), start.getMonth() + months * i, Math.min(start.getDate(), last), start.getHours(), start.getMinutes()); }
+      else date = addDays(start, step * i);
+      if (date > to) break;
+      if (date >= from) dates.push(date);
+    }
+    return dates;
+  }
+  // Повторяющаяся запись разворачивается в отдельные даты в пределах диапазона; даты, изменённые или удалённые отдельно, пропускаем
+  function occurrences(prop, from = startOfDay(), to = addMonths(startOfDay(), 1)) {
+    const start = parseDate(prop.date); if (!isRepeating(prop) || !start || isNaN(start)) return [prop];
+    const skipped = propExtra(prop.id).exceptions || [];
+    return ruleDates(start, repeatRule(prop), from, to).filter((date) => !skipped.includes(dayKey(date))).map((date) => ({ ...prop, date: date.toISOString(), occurrence: true }));
+  }
+  function addException(propId, date) { const store = extras(); const extra = store.props[propId] ||= {}; extra.exceptions = [...new Set([...(extra.exceptions || []), dateOnly(date)])]; saveExtras(store); }
+  // Приёмы одного курса: по метке серии (если курс создан в этом браузере) или по препарату, питомцу и числу приёмов
+  function courseInfo(prop) { const match = String(prop.msg || '').match(COURSE_RE); return match ? { index: Number(match[1]), total: Number(match[2]), dose: prop.msg.slice(0, match.index) } : null; }
+  function courseSeries(prop) {
+    const info = courseInfo(prop); if (prop.category !== 'medication' || !info) return [prop];
+    const series = propExtra(prop.id).series; if (series) return state.props.filter((p) => propExtra(p.id).series === series);
+    const petId = petOf(prop)?.id;
+    return state.props.filter((p) => p.category === 'medication' && p.name === prop.name && petOf(p)?.id === petId && courseInfo(p)?.total === info.total && !propExtra(p.id).series);
+  }
+  function withCourseMark(msg, prop) { const info = courseInfo(prop); return info ? [msg, `приём ${info.index} из ${info.total}`].filter(Boolean).join(' · ') : msg; }
   function birthdayEvents(petId, from, to) {
     const result = [];
     state.pets.filter((pet) => pet.birth_date && (!petId || pet.id === Number(petId))).forEach((pet) => {
@@ -230,12 +288,14 @@
     });
     return result;
   }
-  function eventsFor(petId, type, from, to) {
-    const props = type === 'birthday' ? [] : propsOfPet(petId).filter((p) => p.category !== 'food' && (!type || p.category === type)).flatMap(occurrences);
+  // При фильтре по питомцу события «для всех питомцев» (без привязки) тоже относятся к нему
+  function eventsFor(petId, type, from, to, repeatTo = to) {
+    const props = type === 'birthday' ? [] : state.props.filter((p) => { const pet = petOf(p); return p.category !== 'food' && (!type || p.category === type) && (!petId || !pet || pet.id === Number(petId)); }).flatMap((p) => occurrences(p, from, repeatTo));
     const birthdays = !type || type === 'birthday' ? birthdayEvents(petId, from, to) : [];
     return [...props, ...birthdays];
   }
-  function upcomingEvents(petId, type = '') { const today = startOfDay(); return eventsFor(petId, type, today, addMonths(today, 12)).filter((item) => parseDate(item.date) >= today).sort(byDateAsc); }
+  // Разовые события — на год вперёд, повторы — на ближайший месяц, чтобы ежедневное не заполнило весь список
+  function upcomingEvents(petId, type = '') { const today = startOfDay(); return eventsFor(petId, type, today, addMonths(today, 12), addMonths(today, 1)).filter((item) => parseDate(item.date) >= today).sort(byDateAsc); }
   function showTime(item) { if (item.virtual) return false; const extra = propExtra(item.id); return extra.hasTime ?? timeOf(item.date) !== '00:00'; }
 
   // ---------- Авторизация ----------
@@ -250,7 +310,12 @@
     el.authScreen.classList.add('is-hidden'); el.appScreen.classList.remove('is-hidden'); updateUserChip();
     await loadData(); renderPage(); startPolling();
   }
-  function updateUserChip() { $('#user-name').textContent = state.user.name || 'Пользователь'; $('#user-initial').textContent = (state.user.name || 'П')[0].toUpperCase(); }
+  function userInitial() { return (state.user?.name || 'П')[0].toUpperCase(); }
+  function updateUserChip() {
+    const avatar = avatarImage(); $('#user-name').textContent = state.user.name || 'Пользователь';
+    $('#user-initial').innerHTML = avatar ? `<img src="${escapeHtml(avatar)}" alt="">` : escapeHtml(userInitial());
+    $('#menu-user-name').textContent = state.user.name || 'Пользователь'; $('#menu-user-email').textContent = state.user.email || '';
+  }
   function sessionExpired() {
     if (!state.user) return;
     localStorage.removeItem(TOKEN_KEY); state.user = null; clearInterval(state.pollTimer); closeModal();
@@ -259,8 +324,28 @@
   }
   async function loadData() {
     clearMessage(el.appMessage);
-    try { const [pets, props] = await Promise.all([request('/pet/list'), request('/prop/list')]); state.pets = pets; state.props = props; } catch (error) { if (!state.user) return; state.pets = []; state.props = []; message(el.appMessage, apiError(error)); }
-    pollNotifications();
+    try { const [pets, props] = await Promise.all([request('/pet/list'), request('/prop/list')]); state.avatarPet = pets.find((p) => p.name === AVATAR_PET) || null; state.pets = pets.filter((p) => p !== state.avatarPet); state.props = props; } catch (error) { if (!state.user) return; state.pets = []; state.props = []; message(el.appMessage, apiError(error)); }
+    pollNotifications(); await loadAvatar();
+  }
+
+  // ---------- Аватар пользователя ----------
+  function avatarImage() { return (state.avatarPet?.has_picture && petImage(state.avatarPet)) || extras().profile.avatar || ''; }
+  async function loadAvatar() {
+    if (!state.user) return;
+    // Аватар из старой версии лежал только в этом браузере — один раз переносим его на сервер
+    const local = extras().profile.avatar;
+    if (local && !state.avatarPet?.has_picture) { try { const blob = await (await fetch(local)).blob(); if (PHOTO_TYPES.includes(blob.type) && blob.size <= MAX_PHOTO_SIZE) await uploadAvatar(new File([blob], 'avatar', { type: blob.type })); } catch {} }
+    if (state.avatarPet?.has_picture) await fetchPhoto(state.avatarPet);
+    updateUserChip();
+  }
+  async function uploadAvatar(file) {
+    state.avatarPet ||= await request('/pet/add', { method: 'POST', body: { name: AVATAR_PET, type: null, breed: null, birth_date: null, own_ids: [], prop_ids: [] } });
+    await uploadPetPhoto(state.avatarPet.id, file); state.avatarPet = { ...state.avatarPet, has_picture: true }; await fetchPhoto(state.avatarPet);
+    const store = extras(); delete store.profile.avatar; saveExtras(store); updateUserChip();
+  }
+  async function removeAvatar() {
+    if (state.avatarPet) { await request(`/pet/del?pet_id=${state.avatarPet.id}`, { method: 'DELETE' }); localStorage.removeItem(photoKey(state.avatarPet.id)); state.avatarPet = null; }
+    const store = extras(); delete store.profile.avatar; saveExtras(store); updateUserChip();
   }
 
   // ---------- Уведомления ----------
@@ -310,7 +395,7 @@
   }
 
   // ---------- Модальные окна ----------
-  function openModal(content) { if (state.confirmResolve) { state.confirmResolve(false); state.confirmResolve = null; } el.modalContent.innerHTML = content; el.modal.classList.remove('is-hidden'); document.body.classList.add('modal-open'); }
+  function openModal(content, className = '') { if (state.confirmResolve) { state.confirmResolve(false); state.confirmResolve = null; } el.modalCard.className = `modal-card ${className}`.trim(); el.modalContent.innerHTML = content; el.modal.classList.remove('is-hidden'); document.body.classList.add('modal-open'); }
   function closeModal() { el.modal.classList.add('is-hidden'); el.modalContent.innerHTML = ''; document.body.classList.remove('modal-open'); if (state.confirmResolve) { state.confirmResolve(false); state.confirmResolve = null; } }
   function confirmDialog(text, okLabel = 'Удалить') {
     return new Promise((resolve) => {
@@ -319,6 +404,15 @@
       $('#confirm-ok').addEventListener('click', () => { state.confirmResolve = null; closeModal(); resolve(true); });
     });
   }
+  // Выбор из нескольких вариантов; при отмене возвращает false
+  function choiceDialog(title, text, choices) {
+    return new Promise((resolve) => {
+      openModal(`<h2>${title}</h2><p class="muted">${escapeHtml(text)}</p><div class="choice-list">${choices.map(([value, label]) => `<button type="button" class="primary-button danger-fill" data-choice="${value}">${label}</button>`).join('')}<button type="button" class="secondary-button" data-close-modal>Отмена</button></div>`);
+      state.confirmResolve = resolve;
+      el.modalContent.querySelectorAll('[data-choice]').forEach((button) => button.addEventListener('click', () => { state.confirmResolve = null; closeModal(); resolve(button.dataset.choice); }));
+    });
+  }
+  function openPhoto(src, alt = '') { openModal(`<img class="photo-zoom" src="${escapeHtml(src)}" alt="${escapeHtml(alt)}">`, 'modal-photo'); }
 
   // ---------- Страницы ----------
   function navigate(page, options = {}) { state.page = page; state.selectedPet = options.selectedPet ?? null; if (options.healthPet !== undefined) state.healthPet = options.healthPet; if (options.foodPet !== undefined) state.foodPet = options.foodPet; renderPage(); window.scrollTo?.(0, 0); }
@@ -338,18 +432,18 @@
     el.pageContent.innerHTML = `<div class="dashboard-grid"><section class="dashboard-pets" style="--cols:${Math.min(count, 3)};--cols-sm:${Math.min(count, 2)}"><div class="section-title"><h2>Ваши питомцы</h2><button class="outline-button" data-action="add-pet">+ Добавить</button></div>${petGrid()}${state.pets.length > 1 ? '<p class="muted small-note">Нажмите на карточку, чтобы увидеть события только этого питомца.</p>' : ''}</section><section class="dashboard-procedures"><div id="notice-banner-slot">${noticeBanner()}</div><div class="section-title"><h2>Ближайшие события${selectedPet ? ` · ${escapeHtml(selectedPet.name)}` : ''}</h2><button class="outline-button" data-goto="reminders">Все →</button></div>${eventList(next, { actions: false, empty: 'Ближайших событий нет.<br>Добавьте прививку или обработку — следующую дату мы рассчитаем сами.' })}${quickActions(selected || '')}</section></div>`;
     bindDynamic(); loadRemotePhotos();
   }
-  function petGrid(deletable = false) { if (!state.pets.length) return '<div class="empty-state">Питомцев пока нет.<br><button class="primary-button compact-button empty-action" data-action="add-pet">+ Добавить питомца</button></div>'; return `<div class="pet-grid">${state.pets.map((pet) => petCard(pet, deletable)).join('')}</div>`; }
+  function petGrid() { if (!state.pets.length) return '<div class="empty-state">Питомцев пока нет.<br><button class="primary-button compact-button empty-action" data-action="add-pet">+ Добавить питомца</button></div>'; return `<div class="pet-grid">${state.pets.map(petCard).join('')}</div>`; }
   function petPhoto(pet, className = 'pet-photo') { const image = petImage(pet); return `<div class="${className}">${image ? `<img src="${image}" alt="${escapeHtml(pet.name)}">` : pet.has_picture && !USE_MOCK_API ? `<img data-photo-id="${pet.id}" alt="${escapeHtml(pet.name)}">` : '🐾'}</div>`; }
   function petMeta(pet) { return [pet.type, pet.breed, pet.birth_date ? ageText(pet.birth_date) : ''].filter(Boolean).join(' · '); }
-  function petCard(pet, deletable = false) { const selected = state.selectedPet === pet.id ? ' is-selected' : ''; const meta = petMeta(pet); return `<article class="pet-card${selected}" data-action="select-pet" data-id="${pet.id}">${petPhoto(pet)}<div class="pet-card-body"><h3>${escapeHtml(pet.name)}</h3>${meta ? `<p class="pet-meta">${escapeHtml(meta)}</p>` : ''}<button class="outline-button pet-details-button" data-action="open-pet" data-id="${pet.id}">Вся информация</button>${deletable ? `<button class="danger-button pet-delete-button" data-action="delete-pet" data-id="${pet.id}">Удалить</button>` : ''}</div></article>`; }
+  function petCard(pet) { const selected = state.selectedPet === pet.id ? ' is-selected' : ''; const meta = petMeta(pet); return `<article class="pet-card${selected}" data-action="select-pet" data-id="${pet.id}">${petPhoto(pet)}<div class="pet-card-body"><h3>${escapeHtml(pet.name)}</h3>${meta ? `<p class="pet-meta">${escapeHtml(meta)}</p>` : ''}<button class="outline-button pet-details-button" data-action="open-pet" data-id="${pet.id}">Вся информация</button></div></article>`; }
 
   function renderPets() {
     const pet = state.selectedPet ? state.pets.find((item) => item.id === state.selectedPet) : null;
-    if (!pet) { el.pageContent.innerHTML = `<div class="section-title"><h2>Все питомцы</h2><button class="primary-button compact-button" data-action="add-pet">+ Добавить</button></div>${petGrid(true)}`; bindDynamic(); loadRemotePhotos(); return; }
+    if (!pet) { el.pageContent.innerHTML = `<div class="section-title"><h2>Все питомцы</h2><button class="primary-button compact-button" data-action="add-pet">+ Добавить</button></div>${petGrid()}`; bindDynamic(); loadRemotePhotos(); return; }
     const extra = petExtra(pet.id); const upcoming = upcomingEvents(pet.id).slice(0, 5); const food = foodBase(propsOfPet(pet.id).filter((p) => p.category === 'food'));
     const info = [['Вид', pet.type], ['Порода', pet.breed], ['Дата рождения', pet.birth_date ? `${formatDate(pet.birth_date, false)} (${ageText(pet.birth_date)})` : '']];
     el.pageContent.innerHTML = `<div class="section-title"><h2>Информация о питомце</h2><button class="outline-button" data-action="back-pets">← Все питомцы</button></div>
-      <section class="card pet-profile"><div class="pet-profile-header">${petPhoto(pet, 'avatar-large pet-avatar-placeholder')}<div><h2>${escapeHtml(pet.name)}</h2><p class="muted">${escapeHtml(petMeta(pet) || 'Вид, порода и дата рождения пока не указаны')}</p><div class="pet-profile-actions"><button class="outline-button" data-action="edit-pet" data-id="${pet.id}">Редактировать</button><button class="danger-button" data-action="delete-pet" data-id="${pet.id}">Удалить питомца</button></div></div></div>
+      <section class="card pet-profile"><div class="pet-profile-header">${pet.has_picture || petImage(pet) ? `<button class="photo-zoom-trigger" type="button" data-action="zoom-photo" title="Открыть фото" aria-label="Открыть фото крупнее">${petPhoto(pet, 'avatar-large pet-avatar-placeholder')}</button>` : petPhoto(pet, 'avatar-large pet-avatar-placeholder')}<div><h2>${escapeHtml(pet.name)}</h2><p class="muted">${escapeHtml(petMeta(pet) || 'Вид, порода и дата рождения пока не указаны')}</p><div class="pet-profile-actions"><button class="outline-button" data-action="edit-pet" data-id="${pet.id}">Редактировать</button><button class="icon-button danger" type="button" data-action="delete-pet" data-id="${pet.id}" title="Удалить питомца" aria-label="Удалить питомца">🗑</button></div></div></div>
       <div class="info-list">${info.map(([label, value]) => `<div><small>${label}</small><strong>${escapeHtml(value || '—')}</strong></div>`).join('')}</div>
       <hr><div class="section-title"><h3>Карта здоровья</h3><button class="outline-button" data-goto="health" data-pet="${pet.id}">Открыть →</button></div>${healthSummary(pet.id)}${quickActions(pet.id)}
       <hr><div class="section-title"><h3>Питание</h3><button class="outline-button" data-goto="food" data-pet="${pet.id}">Журнал →</button></div>${food.html || '<p class="muted">Записей о кормах пока нет.</p>'}
@@ -362,7 +456,7 @@
     const cat = CATEGORIES[item.category] || CATEGORIES.reminder; const pet = item.virtual ? state.pets.find((p) => p.id === item.petId) : petOf(item); const relative = relativeDay(item.date);
     const overdue = !item.virtual && item.category === 'reminder' && !isRepeating(item) && parseDate(item.date) < startOfDay();
     const textLabel = { vet_visit: 'Заключение', food: 'Комментарий', medication: 'Назначение' }[item.category] || 'Заметка';
-    return `<article class="event-card event-${item.category}"><div class="event-icon">${cat.icon}</div><div class="event-body"><div class="event-meta"><span class="category-chip">${cat.label}</span>${relative ? `<span class="relative-chip">${relative}</span>` : ''}${overdue ? '<span class="relative-chip is-past">Прошло</span>' : ''}</div><h3>${escapeHtml(item.name)}</h3><p class="event-sub"><strong>${escapeHtml(pet ? pet.name : 'Все питомцы')}</strong> · ${formatDate(item.date, showTime(item))}</p>${item.msg ? `<p>${escapeHtml(item.msg)}</p>` : ''}${item.text ? `<p class="event-text"><strong>${textLabel}:</strong> ${escapeHtml(item.text)}</p>` : ''}${item.category === 'food' ? foodBadges(item) : ''}${!item.virtual && isRepeating(item) ? `<p class="event-repeat">↻ Повторяется: ${periodLabel(item).toLowerCase()}</p>` : ''}</div>${actions && !item.virtual ? `<div class="event-actions"><button class="icon-button" type="button" data-action="edit-prop" data-id="${item.id}" title="Изменить" aria-label="Изменить">✎</button><button class="icon-button danger" type="button" data-action="delete-prop" data-id="${item.id}" title="Удалить" aria-label="Удалить">🗑</button></div>` : ''}</article>`;
+    return `<article class="event-card event-${item.category}"><div class="event-icon">${cat.icon}</div><div class="event-body"><div class="event-meta"><span class="category-chip">${cat.label}</span>${relative ? `<span class="relative-chip">${relative}</span>` : ''}${overdue ? '<span class="relative-chip is-past">Прошло</span>' : ''}</div><h3>${escapeHtml(item.name)}</h3><p class="event-sub"><strong>${escapeHtml(pet ? pet.name : 'Все питомцы')}</strong> · ${formatDate(item.date, showTime(item))}</p>${item.msg ? `<p>${escapeHtml(item.msg)}</p>` : ''}${item.text ? `<p class="event-text"><strong>${textLabel}:</strong> ${escapeHtml(item.text)}</p>` : ''}${item.category === 'food' ? foodBadges(item) : ''}${!item.virtual && isRepeating(item) ? `<p class="event-repeat">↻ Повторяется: ${periodLabel(item).toLowerCase()}</p>` : ''}</div>${actions && !item.virtual ? `<div class="event-actions"><button class="icon-button" type="button" data-action="edit-prop" data-id="${item.id}" data-date="${item.date}" title="Изменить" aria-label="Изменить">✎</button><button class="icon-button danger" type="button" data-action="delete-prop" data-id="${item.id}" data-date="${item.date}" title="Удалить" aria-label="Удалить">🗑</button></div>` : ''}</article>`;
   }
   function eventList(items, options = {}) { if (!items.length) return `<div class="empty-state">${options.empty || 'Записей пока нет.'}</div>`; return `<div class="event-list">${items.map((item) => eventCard(item, options)).join('')}</div>`; }
 
@@ -420,27 +514,62 @@
     return dates;
   }
   function courseHint(form, prefix, startDay, time) { const node = form.querySelector(`[data-course-hint="${prefix}"]`); if (!node) return; const dates = courseDates(form, prefix, startDay, time); node.textContent = !dates ? 'Укажите дату начала и длительность от 1 до 90 дней.' : dates.length > MAX_COURSE_DOSES ? `Слишком много приёмов (${dates.length}). Максимум — ${MAX_COURSE_DOSES}.` : `Мы создадим ${dates.length} ${plural(dates.length, ['напоминание', 'напоминания', 'напоминаний'])} о приёме: с ${formatDate(dates[0], false)} по ${formatDate(dates.at(-1), false)}.`; }
+  function repeatFields(prop, day) {
+    const extra = propExtra(prop.id); const period = extra.period || 'ежедневно'; const unit = extra.unit || 'day';
+    const weekdays = extra.weekdays?.length ? extra.weekdays : [new Date(`${day}T12:00:00`).getDay()];
+    return `<div class="field"><label for="record-period">Как часто</label><select id="record-period" name="period">${PERIODS.map(([value, label]) => `<option value="${value}" ${period === value ? 'selected' : ''}>${label}</option>`).join('')}</select></div>
+      <div class="field-row" id="custom-period"><div class="field"><label for="record-every">Повторять раз в</label><input id="record-every" name="every" type="number" min="1" max="365" inputmode="numeric" value="${extra.every || 2}"></div><div class="field"><label for="record-unit">&nbsp;</label><select id="record-unit" name="unit" aria-label="Единица интервала">${Object.keys(UNIT_FORMS).map((value) => `<option value="${value}" ${unit === value ? 'selected' : ''}></option>`).join('')}</select></div></div>
+      <div class="field" id="weekdays-field"><label>Дни недели</label><div class="segmented weekday-picker">${WEEKDAYS.map(([value, label]) => `<label class="segment"><input type="checkbox" name="weekdays" value="${value}" ${weekdays.includes(value) ? 'checked' : ''}><span>${label}</span></label>`).join('')}</div></div>
+      <p class="field-hint" id="period-hint"></p>`;
+  }
+  function formRule(form) { return { period: form.elements.period.value, every: Number(form.elements.every.value), unit: form.elements.unit.value, weekdays: [...form.querySelectorAll('[name="weekdays"]:checked')].map((input) => Number(input.value)) }; }
+  function ruleErrors(fields) {
+    const errors = [];
+    if (fields.period === 'custom' && (!Number.isInteger(fields.every) || fields.every < 1 || fields.every > 365)) errors.push(['every', 'Укажите целое число от 1 до 365.']);
+    if (fields.period === 'weekdays' && !fields.weekdays.length) errors.push(['weekdays', 'Выберите хотя бы один день недели.']);
+    return errors;
+  }
+  function updatePeriodFields(form) {
+    if (!form.elements.period) return;
+    const fields = formRule(form); const custom = fields.period === 'custom'; const day = form.elements.date.value;
+    $('#custom-period').classList.toggle('is-hidden', !custom);
+    $('#weekdays-field').classList.toggle('is-hidden', !(fields.period === 'weekdays' || (custom && fields.unit === 'week')));
+    const count = Number.isInteger(fields.every) && fields.every > 0 ? fields.every : 1;
+    [...form.elements.unit.options].forEach((option) => { option.textContent = plural(count, UNIT_FORMS[option.value]); });
+    const errors = ruleErrors(fields); const hint = $('#period-hint');
+    if (errors.length || !day) { hint.textContent = errors[0]?.[1] || ''; return; }
+    const start = new Date(`${day}T${form.elements.time.value || '00:00'}:00`); const rule = ruleFrom(fields, start);
+    const next = ruleDates(start, rule, startOfDay(), addMonths(startOfDay(), 120)).slice(0, 3);
+    hint.textContent = `${ruleLabel(rule)}.${next.length ? ` Ближайшие даты: ${next.map((date) => formatDate(date, false)).join(', ')}.` : ''}`;
+  }
   function recordForm(prop = {}, defaults = {}) {
-    const isEdit = !!prop.id; state.editingProp = prop.id || null; const category = prop.category || defaults.category || 'vaccination'; const extra = propExtra(prop.id);
+    const isEdit = !!prop.id; state.editingProp = prop.id || null; const category = prop.category || defaults.category || 'vaccination';
     const petId = isEdit ? petOf(prop)?.id || '' : defaults.petId || (state.pets.length === 1 ? state.pets[0].id : '');
-    const day = prop.date ? dateOnly(prop.date) : dayKey(new Date()); const time = prop.date && showTime(prop) ? timeOf(prop.date) : '';
-    const repeat = isEdit && isRepeating(prop); const period = extra.period || 'ежедневно';
-    openModal(`<h2>${isEdit ? 'Редактировать запись' : 'Новая запись'}</h2><form id="record-form" novalidate>
+    // У повторяющейся записи редактируем ту дату, на которой нажали «Изменить»
+    const occurrence = isEdit ? defaults.date || prop.date : null; state.editingDate = occurrence;
+    const day = occurrence ? dateOnly(occurrence) : dayKey(new Date()); const time = isEdit && showTime(prop) ? timeOf(occurrence) : '';
+    const repeat = isEdit && isRepeating(prop); const series = isEdit ? courseSeries(prop) : []; const hasScope = repeat || series.length > 1;
+    const scopes = repeat ? [['one', `Только ${dayLabel(day)}`], ['all', 'Все повторы']] : [['one', 'Только этот приём'], ['all', `Весь курс (${series.length} ${plural(series.length, ['приём', 'приёма', 'приёмов'])})`]];
+    const scopeField = hasScope ? `<div class="field scope-field"><label>Что изменить?</label><div class="segmented">${scopes.map(([value, label], index) => `<label class="segment"><input type="radio" name="scope" value="${value}" ${index === 0 ? 'checked' : ''}><span>${label}</span></label>`).join('')}</div><p class="field-hint" id="scope-hint"></p></div>` : '';
+    openModal(`<h2>${isEdit ? 'Редактировать запись' : 'Новая запись'}</h2><form id="record-form" novalidate>${scopeField}
       <div class="field"><label for="record-category">Тип записи</label><select id="record-category" name="category">${RECORD_CATEGORIES.map((c) => `<option value="${c}" ${c === category ? 'selected' : ''}>${CATEGORIES[c].icon} ${CATEGORIES[c].label}</option>`).join('')}</select></div>
       <div class="field"><label for="record-pet">Питомец</label><select id="record-pet" name="petId">${petOptions(petId, 'Без привязки к питомцу')}</select></div>
       <div class="field"><label for="record-name" data-name-label>Название *</label><input id="record-name" name="name" maxlength="200" value="${escapeHtml(prop.name || '')}" placeholder="${CATEGORIES[category].placeholder}"></div>
       <div class="field-row"><div class="field"><label for="record-date" data-date-label>Дата *</label><input id="record-date" name="date" type="date" value="${day}"></div><div class="field"><label for="record-time">Время</label><input id="record-time" name="time" type="time" value="${time}"></div></div>
-      <div class="field"><label for="record-msg" data-msg-label>Комментарий</label><input id="record-msg" name="msg" maxlength="300" value="${escapeHtml(prop.msg || '')}" placeholder="Например, не забыть паспорт"></div>
+      <div class="field"><label for="record-msg" data-msg-label>Комментарий</label><input id="record-msg" name="msg" maxlength="300" value="${escapeHtml(courseInfo(prop)?.dose ?? prop.msg ?? '')}" placeholder="Например, не забыть паспорт"></div>
       <div class="field" data-for="vet_visit"><label for="record-text">Заключение ветеринара</label><textarea id="record-text" name="text" placeholder="Диагноз, рекомендации, назначения…">${escapeHtml(prop.category === 'vet_visit' ? prop.text || '' : '')}</textarea></div>
       ${isEdit ? '' : `<div class="field" data-for="vaccination parasites"><label for="record-next">Следующая процедура</label><select id="record-next" name="next">${NEXT_INTERVALS.map(([value, label]) => `<option value="${value}" ${value === (DEFAULT_NEXT[category] || '') ? 'selected' : ''}>${label}</option>`).join('')}</select><p class="field-hint" id="next-hint"></p></div>
       <div data-for="medication">${courseFields('course_')}</div>
       <details class="form-details" data-for="vet_visit"><summary>💊 Назначить препарат по заключению</summary><div class="field"><label for="rx-name">Препарат</label><input id="rx-name" name="rx_name" maxlength="200" placeholder="Например, Синулокс"></div><div class="field"><label for="rx-dose">Дозировка</label><input id="rx-dose" name="rx_dose" maxlength="200" placeholder="Например, 1/2 таблетки"></div>${courseFields('rx_', day)}</details>`}
-      <div data-for="reminder"><label class="checkbox-row"><input name="rep" type="checkbox" ${repeat ? 'checked' : ''}> Повторять напоминание</label><div class="field ${repeat ? '' : 'is-hidden'}" id="period-field"><label for="record-period">Как часто</label><select id="record-period" name="period">${PERIODS.map(([value, label]) => `<option value="${value}" ${period === value ? 'selected' : ''}>${label}</option>`).join('')}</select><p class="field-hint">Напоминание появится на все даты повторения на ближайший месяц.</p></div></div>
+      <div data-for="reminder" id="repeat-block"><label class="checkbox-row"><input name="rep" type="checkbox" ${repeat ? 'checked' : ''}> Повторять напоминание</label><div class="${repeat ? '' : 'is-hidden'}" id="period-field">${repeatFields(prop, day)}</div></div>
       <div class="form-actions"><button type="button" class="secondary-button" data-close-modal>Отмена</button><button class="primary-button" type="submit">Сохранить</button></div></form>`);
     const form = $('#record-form');
     const refresh = (categoryChanged = false) => {
-      const cat = form.elements.category.value;
+      const cat = form.elements.category.value; const scope = form.elements.scope?.value;
       form.querySelectorAll('[data-for]').forEach((node) => node.classList.toggle('is-hidden', !node.dataset.for.split(' ').includes(cat)));
+      // Отдельная дата повтора сохраняется как разовая запись — настройки повтора для неё не нужны
+      if (repeat && scope === 'one') $('#repeat-block').classList.add('is-hidden');
+      if (hasScope) $('#scope-hint').textContent = repeat ? (scope === 'one' ? 'Изменится только эта дата, остальные повторы останутся как были.' : 'Изменения применятся ко всем повторам. Если сдвинуть дату или время, сдвинется вся серия.') : (scope === 'one' ? 'Изменится только этот приём.' : 'Название, дозировка и питомец изменятся во всех приёмах, а сдвиг даты и времени применится ко всему курсу.');
       form.elements.name.placeholder = CATEGORIES[cat].placeholder;
       form.querySelector('[data-name-label]').textContent = cat === 'medication' ? 'Препарат *' : 'Название *';
       form.querySelector('[data-date-label]').textContent = cat === 'medication' && !isEdit ? 'Первый приём *' : 'Дата *';
@@ -450,16 +579,21 @@
       const nextHint = $('#next-hint');
       if (nextHint) { const months = Number(form.elements.next.value); nextHint.textContent = months && form.elements.date.value ? `Следующая ${cat === 'vaccination' ? 'вакцинация' : 'обработка'} — ${formatDate(addMonths(new Date(`${form.elements.date.value}T12:00:00`), months), false)} — мы добавим её в напоминания.` : ''; }
       if (!isEdit) { courseHint(form, 'course_', form.elements.date.value, form.elements.time.value); courseHint(form, 'rx_', form.elements.rx_start.value, form.elements.rx_time.value); }
+      updatePeriodFields(form);
     };
     form.addEventListener('change', (event) => { if (event.target.name === 'rep') $('#period-field').classList.toggle('is-hidden', !event.target.checked); refresh(event.target.name === 'category'); });
     form.addEventListener('input', () => refresh());
     form.addEventListener('submit', saveRecord);
     refresh();
   }
+  function markSeries(items) { if (!items.length) return; const store = extras(); const series = `s${items[0].id}`; items.forEach((item) => { store.props[item.id] = { ...(store.props[item.id] || {}), series }; }); saveExtras(store); }
   async function saveRecord(event) {
     event.preventDefault(); const form = event.target; const data = new FormData(form); const button = form.querySelector('[type="submit"]');
     const category = data.get('category'); const name = String(data.get('name') || '').trim(); const day = data.get('date'); const time = data.get('time'); const petId = data.get('petId');
     const old = state.props.find((p) => p.id === state.editingProp); const isEdit = !!old; const isCourse = !isEdit && category === 'medication'; const rxName = category === 'vet_visit' && !isEdit ? String(data.get('rx_name') || '').trim() : '';
+    const scope = data.get('scope') || 'all'; const occurrence = state.editingDate || old?.date;
+    const onlyThisDate = isEdit && isRepeating(old) && scope === 'one'; const wholeCourse = isEdit && scope === 'all' ? courseSeries(old) : [];
+    const repeat = category === 'reminder' && data.get('rep') === 'on' && !onlyThisDate; const rule = repeat ? formRule(form) : null;
     const errors = [];
     if (!name) errors.push(['name', category === 'medication' ? 'Укажите название препарата.' : 'Укажите название записи.']);
     if (!day) errors.push(['date', 'Выберите дату.']);
@@ -467,31 +601,47 @@
     if (isCourse && day && !course) errors.push(['course_days', 'Длительность — от 1 до 90 дней.']); else if (course?.length > MAX_COURSE_DOSES) errors.push(['course_days', `Слишком много приёмов — максимум ${MAX_COURSE_DOSES}. Сократите курс.`]);
     const rx = rxName ? courseDates(form, 'rx_', data.get('rx_start'), data.get('rx_time')) : null;
     if (rxName) { if (!data.get('rx_start')) errors.push(['rx_start', 'Укажите дату начала приёма.']); else if (!rx) errors.push(['rx_days', 'Длительность — от 1 до 90 дней.']); else if (rx.length > MAX_COURSE_DOSES) errors.push(['rx_days', `Слишком много приёмов — максимум ${MAX_COURSE_DOSES}.`]); }
+    if (rule) errors.push(...ruleErrors(rule));
     if (form.querySelector('.form-details') && errors.some(([field]) => field.startsWith('rx_'))) form.querySelector('.form-details').open = true;
     if (!showErrors(form, errors)) return;
-    busy(button, true); const createdIds = [];
+    busy(button, true); const created = []; const edited = [];
     try {
-      const msg = String(data.get('msg') || '').trim(); const repeat = category === 'reminder' && data.get('rep') === 'on'; const period = data.get('period') || 'ежедневно';
-      let savedId = null; let note = 'Запись сохранена';
+      const msg = String(data.get('msg') || '').trim(); const text = category === 'vet_visit' ? String(data.get('text') || '').trim() : old && old.category === category ? old.text : null;
+      let note = 'Запись сохранена';
       if (isCourse) {
         const bodies = course.map((date, index) => propBody({ name, date: date.toISOString(), msg: [msg, `приём ${index + 1} из ${course.length}`].filter(Boolean).join(' · '), category: 'medication' }));
-        createdIds.push(...await createProps(bodies)); note = `Курс сохранён: ${course.length} ${plural(course.length, ['напоминание', 'напоминания', 'напоминаний'])} о приёме`;
+        const saved = await createProps(bodies); created.push(...saved); markSeries(saved); note = `Курс сохранён: ${course.length} ${plural(course.length, ['напоминание', 'напоминания', 'напоминаний'])} о приёме`;
+      } else if (onlyThisDate) {
+        // Выбранная дата повтора становится самостоятельной записью, а в серии эта дата пропускается
+        const saved = await request('/prop/add', { method: 'POST', body: propBody({ name, date: toIso(day, time), msg, text, category }) });
+        created.push(saved); const store = extras(); store.props[saved.id] = { hasTime: !!time }; saveExtras(store); addException(old.id, occurrence);
+        note = `Изменено только событие ${dayLabel(dateOnly(occurrence))}`;
+      } else if (wholeCourse.length > 1) {
+        // Сдвиг даты и времени, сделанный в одном приёме, применяем ко всем приёмам курса
+        const shift = parseDate(toIso(day, time)) - parseDate(old.date);
+        edited.push(...await editProps(wholeCourse.map((item) => [item.id, propBody({ name, date: new Date(parseDate(item.date).getTime() + shift).toISOString(), msg: withCourseMark(msg, item), text: item.text, category }, item)])));
+        const store = extras(); wholeCourse.forEach((item) => { store.props[item.id] = { ...(store.props[item.id] || {}), hasTime: !!time }; }); saveExtras(store);
+        note = `Изменения применены ко всему курсу: ${wholeCourse.length} ${plural(wholeCourse.length, ['приём', 'приёма', 'приёмов'])}`;
       } else {
-        const text = category === 'vet_visit' ? String(data.get('text') || '').trim() : old && old.category === category ? old.text : null;
-        // Сервер повторяет запись с rep каждый день, поэтому rep включаем только для ежедневного периода
-        const body = propBody({ name, date: toIso(day, time), msg, text, rep: repeat && period === 'ежедневно', category }, old);
+        // Для всей серии повторов начало сдвигается на столько же, на сколько сдвинули выбранную дату
+        const date = isEdit && repeat && isRepeating(old) ? new Date(parseDate(old.date).getTime() + (parseDate(toIso(day, time)) - parseDate(occurrence))).toISOString() : toIso(day, time);
+        // Сервер повторяет запись с rep каждый день, поэтому rep включаем только для ежедневного повтора
+        const daily = rule ? (({ unit, every, weekdays }) => unit === 'day' && every === 1 && !weekdays)(ruleFrom(rule, parseDate(date))) : false;
+        const body = propBody({ name, date, msg: isEdit ? withCourseMark(msg, old) : msg, text, rep: daily, category }, old);
         const saved = isEdit ? await request(`/prop/edit?prop_id=${old.id}`, { method: 'PUT', body }) : await request('/prop/add', { method: 'POST', body });
-        savedId = saved.id; if (!isEdit) createdIds.push(saved.id);
-        const store = extras(); store.props[saved.id] = { hasTime: !!time, repeat, period }; saveExtras(store);
+        (isEdit ? edited : created).push(saved);
+        const store = extras(); store.props[saved.id] = { ...(store.props[saved.id] || {}), hasTime: !!time, repeat, ...(rule || {}) }; saveExtras(store);
         const months = Number(data.get('next'));
-        if (!isEdit && months && (category === 'vaccination' || category === 'parasites')) { const nextDate = addMonths(parseDate(saved.date), months); createdIds.push(...await createProps([propBody({ name, date: nextDate.toISOString(), msg: 'Рассчитано автоматически по прошлой записи', category })])); note = `Сохранено. Следующая ${category === 'vaccination' ? 'вакцинация' : 'обработка'} — ${formatDate(nextDate, false)}`; }
-        if (rx) { const visitLabel = formatDate(parseDate(saved.date), false); const dose = String(data.get('rx_dose') || '').trim(); createdIds.push(...await createProps(rx.map((date, index) => propBody({ name: rxName, date: date.toISOString(), msg: [dose, `приём ${index + 1} из ${rx.length}`].filter(Boolean).join(' · '), text: `Назначено на визите ${visitLabel}`, category: 'medication' })))); note = `Визит сохранён, назначено ${rx.length} ${plural(rx.length, ['приём', 'приёма', 'приёмов'])} препарата`; }
+        if (!isEdit && months && (category === 'vaccination' || category === 'parasites')) { const nextDate = addMonths(parseDate(saved.date), months); created.push(...await createProps([propBody({ name, date: nextDate.toISOString(), msg: 'Рассчитано автоматически по прошлой записи', category })])); note = `Сохранено. Следующая ${category === 'vaccination' ? 'вакцинация' : 'обработка'} — ${formatDate(nextDate, false)}`; }
+        if (rx) { const visitLabel = formatDate(parseDate(saved.date), false); const dose = String(data.get('rx_dose') || '').trim(); const doses = await createProps(rx.map((date, index) => propBody({ name: rxName, date: date.toISOString(), msg: [dose, `приём ${index + 1} из ${rx.length}`].filter(Boolean).join(' · '), text: `Назначено на визите ${visitLabel}`, category: 'medication' }))); created.push(...doses); markSeries(doses); note = `Визит сохранён, назначено ${rx.length} ${plural(rx.length, ['приём', 'приёма', 'приёмов'])} препарата`; }
       }
-      if (isEdit) await setPropPet(savedId, petId); else if (petId) await linkProps(petId, createdIds);
+      await skipPastNotifications([...created, ...edited]);
+      if (edited.length) await setPropsPet(edited.map((item) => item.id), petId);
+      if (petId && created.length) await linkProps(petId, created.map((item) => item.id));
       closeModal(); await loadData(); renderPage(); notify(note);
     } catch (error) {
       if (!applyApiFieldErrors(form, error)) notify(apiError(error), 'error');
-      if (createdIds.length && state.user) { await loadData(); renderPage(); }
+      if ((created.length || edited.length) && state.user) { await loadData(); renderPage(); }
     } finally { busy(button, false); }
   }
 
@@ -552,7 +702,8 @@
     try {
       const saved = old ? await request(`/prop/edit?prop_id=${old.id}`, { method: 'PUT', body }) : await request('/prop/add', { method: 'POST', body });
       const store = extras(); store.props[saved.id] = { ...(store.props[saved.id] || {}), hasTime: !!data.get('time') }; saveExtras(store);
-      if (old) await setPropPet(saved.id, data.get('petId')); else if (data.get('petId')) await linkProps(data.get('petId'), [saved.id]);
+      await skipPastNotifications([saved]);
+      if (old) await setPropsPet([saved.id], data.get('petId')); else if (data.get('petId')) await linkProps(data.get('petId'), [saved.id]);
       closeModal(); await loadData(); renderPage(); notify('Запись о корме сохранена');
     } catch (error) { if (!applyApiFieldErrors(form, error)) notify(apiError(error), 'error'); } finally { busy(button, false); }
   }
@@ -592,23 +743,31 @@
 
   // ---------- Аккаунт ----------
   function renderProfile() {
-    const profile = extras().profile; const user = state.user;
-    el.pageContent.innerHTML = `<div class="card profile-card"><h2>Данные аккаунта</h2><p class="muted">Измените имя, email или телефон. Для подтверждения введите текущий пароль.</p>${profile.avatar ? `<img class="avatar-large" src="${profile.avatar}" alt="Аватар">` : ''}<form id="profile-form" novalidate>
+    const user = state.user; const avatar = avatarImage();
+    el.pageContent.innerHTML = `<div class="card profile-card avatar-card"><div class="avatar-large profile-avatar">${avatar ? `<img src="${escapeHtml(avatar)}" alt="Аватар">` : escapeHtml(userInitial())}</div><div><h2>Аватар</h2><p class="muted">JPEG, PNG или WebP до 5 МБ. Сохраняется сразу.</p><div class="pet-profile-actions"><label class="outline-button file-button">${avatar ? 'Заменить фото' : 'Загрузить фото'}<input id="avatar-input" type="file" accept="image/jpeg,image/png,image/webp"></label>${avatar ? '<button class="icon-button danger" type="button" id="avatar-remove" title="Удалить аватар" aria-label="Удалить аватар">🗑</button>' : ''}</div></div></div>
+      <div class="card profile-card"><h2>Данные аккаунта</h2><p class="muted">Измените имя, email или телефон. Для подтверждения введите текущий пароль.</p><form id="profile-form" novalidate>
       <div class="field"><label for="profile-name">Имя *</label><input id="profile-name" name="name" autocomplete="name" maxlength="100" value="${escapeHtml(user.name || '')}"></div>
       <div class="field"><label for="profile-email">Email *</label><input id="profile-email" name="email" type="email" autocomplete="email" value="${escapeHtml(user.email || '')}">${user.email_verified === false ? '<p class="field-hint">⚠️ Email не подтверждён. <button class="text-button" type="button" data-action="verify-email">Подтвердить</button></p>' : ''}</div>
       <div class="field"><label for="profile-phone">Телефон</label><input id="profile-phone" name="phone_number" type="tel" autocomplete="tel" placeholder="+79990000000" value="${escapeHtml(user.phone_number || '')}"></div>
       <div class="field"><label for="profile-new-password">Новый пароль</label><input id="profile-new-password" name="new_passwd" type="password" autocomplete="new-password" placeholder="Оставьте пустым, чтобы не менять"></div>
       <div class="field"><label for="profile-password">Текущий пароль *</label><input id="profile-password" name="passwd" type="password" autocomplete="current-password" placeholder="Для подтверждения изменений"></div>
-      <div class="field"><label for="profile-avatar">Аватар (сохраняется в этом браузере)</label><input id="profile-avatar" name="avatar" type="file" accept="image/*"></div>
       <button class="primary-button" type="submit">Сохранить данные</button></form></div>`;
     $('#profile-form').addEventListener('submit', updateProfile);
+    $('#avatar-input').addEventListener('change', async (event) => {
+      const file = event.target.files[0]; if (!file) return;
+      if (!PHOTO_TYPES.includes(file.type)) return notify('Подойдут только JPEG, PNG или WebP.', 'error');
+      if (file.size > MAX_PHOTO_SIZE) return notify('Фото больше 5 МБ — выберите файл поменьше.', 'error');
+      const label = event.target.closest('label'); label.classList.add('is-busy');
+      try { await uploadAvatar(file); renderPage(); notify('Аватар обновлён'); } catch (error) { label.classList.remove('is-busy'); notify(apiError(error), 'error'); }
+    });
+    $('#avatar-remove')?.addEventListener('click', async () => { if (!await confirmDialog('Аватар будет удалён.')) return; try { await removeAvatar(); notify('Аватар удалён'); } catch (error) { notify(apiError(error), 'error'); } renderPage(); });
     $('[data-action="verify-email"]')?.addEventListener('click', async () => { await request('/user/verify/resend', { method: 'POST', body: { email: user.email } }).catch(() => {}); emailVerifyModal(user.email); });
     bindDynamic();
   }
   async function updateProfile(event) {
     event.preventDefault(); const form = event.target; const data = new FormData(form); const button = form.querySelector('[type="submit"]');
-    const name = String(data.get('name') || '').trim(); const email = String(data.get('email') || '').trim().toLowerCase(); const phone = String(data.get('phone_number') || '').trim(); const current = String(data.get('passwd') || ''); const fresh = String(data.get('new_passwd') || ''); const avatar = data.get('avatar');
-    const errors = []; if (name.length < 2) errors.push(['name', 'Имя должно содержать минимум 2 символа.']); if (!/^\S+@\S+\.\S+$/.test(email)) errors.push(['email', 'Введите корректный email, например name@mail.ru']); if (phone && !/^\+?[\d\s()-]{10,18}$/.test(phone)) errors.push(['phone_number', 'Введите номер в формате +79990000000']); if (fresh && fresh.length < 6) errors.push(['new_passwd', 'Пароль должен быть не короче 6 символов.']); if (!current) errors.push(['passwd', 'Введите текущий пароль, чтобы сохранить изменения.']); if (avatar?.size && !avatar.type.startsWith('image/')) errors.push(['avatar', 'Аватар должен быть изображением.']);
+    const name = String(data.get('name') || '').trim(); const email = String(data.get('email') || '').trim().toLowerCase(); const phone = String(data.get('phone_number') || '').trim(); const current = String(data.get('passwd') || ''); const fresh = String(data.get('new_passwd') || '');
+    const errors = []; if (name.length < 2) errors.push(['name', 'Имя должно содержать минимум 2 символа.']); if (!/^\S+@\S+\.\S+$/.test(email)) errors.push(['email', 'Введите корректный email, например name@mail.ru']); if (phone && !/^\+?[\d\s()-]{10,18}$/.test(phone)) errors.push(['phone_number', 'Введите номер в формате +79990000000']); if (fresh && fresh.length < 6) errors.push(['new_passwd', 'Пароль должен быть не короче 6 символов.']); if (!current) errors.push(['passwd', 'Введите текущий пароль, чтобы сохранить изменения.']);
     if (!showErrors(form, errors)) return;
     busy(button, true);
     try {
@@ -617,7 +776,6 @@
       const oldEmail = state.user.email; const user = await request('/user/edit', { method: 'PUT', body: { email, passwd: fresh || current, name, phone_number: phone || null } });
       if (user.email !== oldEmail) { const oldExtras = localStorage.getItem(extrasKey(oldEmail)); if (oldExtras) { localStorage.setItem(extrasKey(user.email), oldExtras); localStorage.removeItem(extrasKey(oldEmail)); } }
       state.user = user;
-      if (avatar?.size) { const store = extras(); store.profile.avatar = await readFile(avatar); saveExtras(store); }
       updateUserChip(); renderPage(); notify('Данные аккаунта обновлены');
       if (user.email !== oldEmail) emailVerifyModal(user.email);
     } catch (error) {
@@ -675,21 +833,32 @@
     if (state.photoUrls[id]) URL.revokeObjectURL(state.photoUrls[id]); delete state.photoUrls[id];
   }
   async function deletePetPhoto(id) { await request(`/pets/${id}/photo`, { method: 'DELETE' }); if (USE_MOCK_API) localStorage.removeItem(photoKey(id)); if (state.photoUrls[id]) URL.revokeObjectURL(state.photoUrls[id]); delete state.photoUrls[id]; }
+  async function fetchPhoto(pet) {
+    if (USE_MOCK_API || !pet?.has_picture || state.photoUrls[pet.id]) return;
+    try { const response = await fetch(`${API}/pets/${pet.id}/photo`, { headers: { Authorization: `Bearer ${localStorage.getItem(TOKEN_KEY)}` } }); if (response.ok) state.photoUrls[pet.id] = URL.createObjectURL(await response.blob()); } catch {}
+  }
   async function loadRemotePhotos() {
     if (USE_MOCK_API) return;
-    await Promise.all(state.pets.filter((pet) => pet.has_picture && !state.photoUrls[pet.id]).map(async (pet) => { try { const response = await fetch(`${API}/pets/${pet.id}/photo`, { headers: { Authorization: `Bearer ${localStorage.getItem(TOKEN_KEY)}` } }); if (response.ok) state.photoUrls[pet.id] = URL.createObjectURL(await response.blob()); } catch {} }));
+    await Promise.all(state.pets.map(fetchPhoto));
     $$('[data-photo-id]').forEach((image) => { const url = state.photoUrls[image.dataset.photoId]; if (url) image.src = url; else image.replaceWith(document.createTextNode('🐾')); });
   }
-  async function deleteItem(type, id) {
+  async function deleteItem(type, id, date) {
     const pet = type === 'pet' ? state.pets.find((item) => item.id === Number(id)) : null; const prop = type === 'prop' ? state.props.find((item) => item.id === Number(id)) : null;
-    const text = pet ? `Питомец «${pet.name}» будет удалён. Записи о нём останутся в журналах.` : prop && isRepeating(prop) ? `Запись «${prop.name}» и все её повторы будут удалены.` : `Запись «${prop?.name || ''}» будет удалена.`;
-    if (!await confirmDialog(text)) return;
+    let propIds = prop ? [prop.id] : []; let note = 'Запись удалена';
+    if (prop && (isRepeating(prop) || courseSeries(prop).length > 1)) {
+      const repeating = isRepeating(prop); const series = courseSeries(prop); const day = dateOnly(date || prop.date);
+      const choice = await choiceDialog('Удалить событие?', repeating ? `«${prop.name}» повторяется. Удалить только ${dayLabel(day)} или все повторы?` : `«${prop.name}» — часть курса из ${series.length} ${plural(series.length, ['приёма', 'приёмов', 'приёмов'])}.`, repeating ? [['one', `Только ${dayLabel(day)}`], ['all', 'Все повторы']] : [['one', 'Только этот приём'], ['all', 'Весь курс']]);
+      if (!choice) return;
+      // Одна дата повтора удаляется без запроса к серверу: просто пропускаем её в серии
+      if (repeating && choice === 'one') { addException(prop.id, day); renderPage(); return notify(`Событие ${dayLabel(day)} удалено`); }
+      if (!repeating && choice === 'all') { propIds = series.map((item) => item.id); note = 'Курс удалён'; }
+    } else if (!await confirmDialog(pet ? `Питомец «${pet.name}» будет удалён. Записи о нём останутся в журналах.` : `Запись «${prop?.name || ''}» будет удалена.`)) return;
     try {
-      await request(pet ? `/pet/del?pet_id=${id}` : `/prop/del?prop_id=${id}`, { method: 'DELETE' });
+      if (pet) await request(`/pet/del?pet_id=${id}`, { method: 'DELETE' }); else await inBatches(propIds, (propId) => request(`/prop/del?prop_id=${propId}`, { method: 'DELETE' }));
       const store = extras();
-      if (pet) { if (state.selectedPet === pet.id) state.selectedPet = null; ['healthPet', 'foodPet', 'remindersPet'].forEach((key) => { if (String(state[key]) === String(pet.id)) state[key] = ''; }); delete store.pets[pet.id]; delete store.weights[pet.id]; localStorage.removeItem(photoKey(pet.id)); } else delete store.props[id];
-      saveExtras(store); await loadData(); renderPage(); notify(pet ? 'Питомец удалён' : 'Запись удалена');
-    } catch (error) { notify(apiError(error), 'error'); }
+      if (pet) { if (state.selectedPet === pet.id) state.selectedPet = null; ['healthPet', 'foodPet', 'remindersPet'].forEach((key) => { if (String(state[key]) === String(pet.id)) state[key] = ''; }); delete store.pets[pet.id]; delete store.weights[pet.id]; localStorage.removeItem(photoKey(pet.id)); } else propIds.forEach((propId) => delete store.props[propId]);
+      saveExtras(store); await loadData(); renderPage(); notify(pet ? 'Питомец удалён' : note);
+    } catch (error) { notify(apiError(error), 'error'); if (propIds.length > 1) { await loadData(); renderPage(); } }
   }
 
   // ---------- Обработчики ----------
@@ -703,8 +872,9 @@
     all('[data-action="back-pets"]').forEach((b) => b.addEventListener('click', () => { state.selectedPet = null; renderPage(); }));
     all('[data-action="edit-pet"]').forEach((b) => b.addEventListener('click', () => petForm(state.pets.find((p) => p.id === Number(b.dataset.id)))));
     all('[data-action="delete-pet"]').forEach((b) => b.addEventListener('click', (event) => { event.stopPropagation(); deleteItem('pet', b.dataset.id); }));
-    all('[data-action="edit-prop"]').forEach((b) => b.addEventListener('click', () => { const prop = state.props.find((p) => p.id === Number(b.dataset.id)); if (prop) (prop.category === 'food' ? foodForm : recordForm)(prop); }));
-    all('[data-action="delete-prop"]').forEach((b) => b.addEventListener('click', () => deleteItem('prop', b.dataset.id)));
+    all('[data-action="edit-prop"]').forEach((b) => b.addEventListener('click', () => { const prop = state.props.find((p) => p.id === Number(b.dataset.id)); if (prop) (prop.category === 'food' ? foodForm : recordForm)(prop, { date: b.dataset.date }); }));
+    all('[data-action="delete-prop"]').forEach((b) => b.addEventListener('click', () => deleteItem('prop', b.dataset.id, b.dataset.date)));
+    all('[data-action="zoom-photo"]').forEach((b) => b.addEventListener('click', () => { const image = b.querySelector('img'); if (image?.src) openPhoto(image.src, image.alt); }));
     all('[data-action="delete-weight"]').forEach((b) => b.addEventListener('click', async () => { if (!await confirmDialog('Удалить это измерение веса?')) return; const store = extras(); store.weights[state.healthPet] = (store.weights[state.healthPet] || []).filter((w) => String(w.id) !== b.dataset.id); saveExtras(store); renderPage(); notify('Измерение удалено'); }));
     all('[data-action="open-notifications"]').forEach((b) => b.addEventListener('click', openNotifications));
     all('[data-goto]').forEach((b) => b.addEventListener('click', () => navigate(b.dataset.goto, { healthPet: b.dataset.goto === 'health' && b.dataset.pet ? b.dataset.pet : undefined, foodPet: b.dataset.goto === 'food' && b.dataset.pet ? b.dataset.pet : undefined })));
@@ -715,7 +885,20 @@
   function clearFieldError(event) { const field = event.target.closest?.('.has-error'); if (field) { field.classList.remove('has-error'); field.querySelector('.field-error')?.remove(); } }
   $$('[data-page]').forEach((b) => b.addEventListener('click', () => navigate(b.dataset.page)));
   $('#bell-button').addEventListener('click', openNotifications);
-  $('.user-chip').addEventListener('click', () => navigate('profile'));
+  // Меню аккаунта справа сверху: «Аккаунт» и «Выйти»
+  function toggleUserMenu(open) { $('#user-menu').classList.toggle('is-hidden', !open); $('#user-menu-button').setAttribute('aria-expanded', String(open)); }
+  $('#user-menu-button').addEventListener('click', () => toggleUserMenu($('#user-menu').classList.contains('is-hidden')));
+  $('#user-menu').addEventListener('click', (event) => { if (event.target.closest('button')) toggleUserMenu(false); });
+  document.addEventListener('click', (event) => { if (!event.target.closest('.user-menu-wrap')) toggleUserMenu(false); });
+  document.addEventListener('keydown', (event) => { if (event.key === 'Escape') toggleUserMenu(false); });
+  // Свёрнутая боковая панель показывает только иконки; выбор запоминаем
+  function setSidebarCollapsed(collapsed) {
+    el.appScreen.classList.toggle('sidebar-collapsed', collapsed); localStorage.setItem('petcare_sidebar_collapsed', collapsed ? '1' : '0');
+    const toggle = $('#sidebar-toggle'); toggle.setAttribute('aria-label', collapsed ? 'Развернуть панель' : 'Свернуть панель'); toggle.title = collapsed ? 'Развернуть панель' : 'Свернуть панель';
+  }
+  $$('.nav-link').forEach((link) => { link.title = link.querySelector('span').textContent; });
+  $('#sidebar-toggle').addEventListener('click', () => setSidebarCollapsed(!el.appScreen.classList.contains('sidebar-collapsed')));
+  setSidebarCollapsed(localStorage.getItem('petcare_sidebar_collapsed') === '1');
   $$('.tab').forEach((tab) => tab.addEventListener('click', () => setAuthMode(tab.dataset.mode)));
   $('.password-toggle').addEventListener('click', (event) => { const visible = el.authPassword.type === 'text'; el.authPassword.type = visible ? 'password' : 'text'; event.currentTarget.textContent = visible ? 'Показать' : 'Скрыть'; });
   $('#back-to-auth').addEventListener('click', () => { el.verifyView.classList.add('is-hidden'); el.authView.classList.remove('is-hidden'); });

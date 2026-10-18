@@ -58,6 +58,8 @@
   test('неверный код — сообщение об ошибке', async () => { $('#verify-code').value = '000000'; $('#verify-form').requestSubmit(); await until(() => /Неверный или просроченный код/.test($('#verify-message').textContent), 'ошибка кода'); });
   test('верный код входит в приложение', async () => { $('#verify-code').value = '123456'; $('#verify-form').requestSubmit(); await until(() => !$('#app-screen').classList.contains('is-hidden'), 'приложение'); });
   test('вход существующего пользователя', async () => { await load(false); $('#auth-email').value = 't@t.ru'; $('#auth-password').value = 'qwerty1'; $('#auth-form').requestSubmit(); await until(() => $('#user-name').textContent === 'Тест', 'имя в шапке'); });
+  test('быстрый вход предлагает 10 аккаунтов и входит в выбранный', async () => { await load(false); eq($$('#test-account option').length, 10, 'число аккаунтов'); $('#test-account').value = '5'; click('#test-login-button'); await until(() => $('#user-name').textContent === 'root6', 'вход root6'); eq($('#menu-user-email').textContent, '1@example.ru', 'email выбранного аккаунта'); });
+  test('быстрый вход работает для десятого аккаунта', async () => { await load(false); $('#test-account').value = '9'; click('#test-login-button'); await until(() => $('#user-name').textContent === 'root10', 'вход root10'); eq($('#menu-user-email').textContent, 'example10@mail.ru', 'email десятого аккаунта'); });
 
   // ---------- Питомцы ----------
   group('Питомцы');

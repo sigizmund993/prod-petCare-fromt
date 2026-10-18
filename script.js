@@ -9,6 +9,14 @@
   const RUN_HINT = 'Откройте сайт через локальный сервер по адресу localhost или 127.0.0.1 (например, Live Server в VS Code) — так бэкенд разрешает запросы. Инструкция в README.md.';
   const MOCK_CODE = '123456';
   const TOKEN_KEY = 'petcare_access_token';
+  // Временно для презентации: данные публичны в клиентском коде, не использовать для настоящих пользователей.
+  const TEST_ACCOUNTS = [
+    ['root1', '1@example.ru'], ['root2', '2@example.ru'], ['root3', '3@example.ru'],
+    ['root4', '4@example.ru'], ['root5', '5@example.ru'], ['root6', '6@example.ru'],
+    ['root7', '7@example.ru'], ['root8', '8@example.ru'], ['root9', '9@example.ru'],
+    ['root10', '10@example.ru'],
+  ];
+  const TEST_PASSWORD = '12345678';
   const SPECIES = ['Кошка', 'Собака', 'Птица', 'Грызун', 'Рептилия', 'Рыба', 'Другое'];
   const CATEGORIES = {
     vaccination: { label: 'Вакцинация', icon: 'heart', placeholder: 'Например, Нобивак Rabies' },
@@ -55,6 +63,7 @@
     'Only the author can do this': 'Редактировать сообщение может только автор.',
     'Not authenticated': 'Нужно войти в аккаунт.',
     'User not found': 'Пользователь не найден.',
+    'Telegram is not configured': 'Telegram-бот пока не настроен на сервере.',
   };
   const now = new Date();
   const state = {
@@ -64,6 +73,7 @@
     procedureView: 'list', calendarMonth: new Date(now.getFullYear(), now.getMonth(), 1), calendarSelectedDate: '',
     communities: [], communityQuery: '', communityMine: false, communityId: null, communityMembers: [], communityLoading: false, communityError: '', communityVersion: 0,
     chatOpen: false, chatMessages: [], chatHasOlder: false, chatLoading: false, chatError: '', chatTimer: null, chatVersion: 0, chatPolling: false,
+    telegramLink: null,
   };
   const $ = (selector) => document.querySelector(selector);
   const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -104,6 +114,7 @@
     // 405 приходит, когда сайт раздаёт обычный статический сервер без прокси /api (например, Live Server по IP сети)
     if (error?.status === 405) return `Сервер не принимает запросы по этому адресу. ${RUN_HINT}`;
     if (error?.status === 413) return 'Файл слишком большой — максимум 5 МБ.';
+    if (error?.detail === 'Telegram is not configured') return ERROR_TEXT[error.detail];
     if (error?.status >= 500) return 'Сервер временно недоступен. Попробуйте чуть позже.';
     if (Array.isArray(error?.detail)) return error.detail.map(translateValidation).join(' ');
     if (error?.detail && ERROR_TEXT[error.detail]) return ERROR_TEXT[error.detail];
@@ -141,7 +152,7 @@
   function mockHandle(path, options) {
     const [route, query] = path.split('?'); const q = new URLSearchParams(query || ''); const store = mockStore(); const body = options.body || {}; const method = options.method || 'GET';
     const fail = (status, detail) => { throw { status, detail }; };
-    const publicUser = (u) => ({ id: u.id, email: u.email, phone_number: u.phone_number || null, name: u.name, email_verified: !!(u.email_verified ?? u.verified) });
+    const publicUser = (u) => ({ id: u.id, email: u.email, phone_number: u.phone_number || null, name: u.name, email_verified: !!(u.email_verified ?? u.verified), telegram_linked: !!u.telegram_linked });
     const byEmail = (email) => store.users[email];
     if (route === '/user/add') { if (byEmail(body.email)) fail(409, 'Email already registered'); store.users[body.email] = { id: store.nextId++, email: body.email, passwd: body.passwd, name: body.name, phone_number: null, email_verified: false, token: `mock-${Date.now()}` }; saveMock(store); return publicUser(store.users[body.email]); }
     if (route === '/user/verify/resend') return null;
@@ -166,6 +177,9 @@
       return [...birthdays, ...props].sort(byDateDesc);
     };
     if (route === '/user/me') return publicUser(user);
+    if (route === '/user/telegram/link' && method === 'POST') { user.telegram_pending = true; saveMock(store); return { url: null, expires_in: 600 }; }
+    if (route === '/user/telegram/demo-start' && method === 'POST') { if (!user.telegram_pending) fail(400, 'Telegram link not requested'); user.telegram_pending = false; user.telegram_linked = true; saveMock(store); return null; }
+    if (route === '/user/telegram' && method === 'DELETE') { user.telegram_linked = false; user.telegram_pending = false; saveMock(store); return null; }
     if (route === '/user/edit') { if (body.phone_number && Object.values(store.users).some((u) => u !== user && u.phone_number === body.phone_number)) fail(409, 'Phone number already registered'); if (body.email !== user.email) { if (byEmail(body.email)) fail(409, 'Email already registered'); delete store.users[user.email]; store.users[body.email] = user; user.email_verified = false; } Object.assign(user, { name: body.name, email: body.email, phone_number: body.phone_number || null, passwd: body.passwd }); saveMock(store); return publicUser(user); }
     const findCommunity = () => store.communities.find((c) => c.id === Number(q.get('community_id'))) || fail(404, 'Community not found');
     if (route === '/community/list') return store.communities.filter((c) => (!q.has('q') || c.name.toLowerCase().includes(q.get('q').toLowerCase())) && (q.get('mine') !== 'true' || c.member_ids.includes(user.id))).sort((a, b) => a.id - b.id);
@@ -349,7 +363,7 @@
   function showTime(item) { if (item.virtual) return false; const extra = propExtra(item.id); return extra.hasTime ?? timeOf(item.date) !== '00:00'; }
 
   // ---------- Авторизация ----------
-  function setAuthMode(mode) { state.authMode = mode; $$('.tab').forEach((tab) => tab.classList.toggle('is-active', tab.dataset.mode === mode)); el.nameField.classList.toggle('is-hidden', mode !== 'register'); $('#form-title').textContent = mode === 'login' ? 'Войти' : 'Создать аккаунт'; el.authSubmit.textContent = mode === 'login' ? 'Войти' : 'Зарегистрироваться'; el.authSubmit.dataset.default = el.authSubmit.textContent; el.authPassword.autocomplete = mode === 'login' ? 'current-password' : 'new-password'; el.authHint.textContent = USE_MOCK_API ? 'Демо-режим: код подтверждения 123456' : ''; clearMessage(el.authMessage); clearFieldErrors(el.authForm); }
+  function setAuthMode(mode) { state.authMode = mode; $$('.tab').forEach((tab) => tab.classList.toggle('is-active', tab.dataset.mode === mode)); el.nameField.classList.toggle('is-hidden', mode !== 'register'); $('#test-login').classList.toggle('is-hidden', mode !== 'login'); $('#form-title').textContent = mode === 'login' ? 'Войти' : 'Создать аккаунт'; el.authSubmit.textContent = mode === 'login' ? 'Войти' : 'Зарегистрироваться'; el.authSubmit.dataset.default = el.authSubmit.textContent; el.authPassword.autocomplete = mode === 'login' ? 'current-password' : 'new-password'; el.authHint.textContent = USE_MOCK_API ? 'Демо-режим: код подтверждения 123456' : ''; clearMessage(el.authMessage); clearFieldErrors(el.authForm); }
   function showVerify(email) { state.verifyEmail = email; el.verifyEmail.textContent = email; el.verifyCode.value = ''; clearMessage(el.verifyMessage); el.authView.classList.add('is-hidden'); el.verifyView.classList.remove('is-hidden'); el.verifyCode.focus(); }
   let resendTimer;
   function startResendCooldown(statusNode, button, seconds = 60) { clearInterval(resendTimer); button.disabled = true; statusNode.textContent = `Отправить ещё раз можно через ${seconds} с.`; resendTimer = setInterval(() => { seconds--; statusNode.textContent = seconds ? `Отправить ещё раз можно через ${seconds} с.` : 'Можно отправить код ещё раз.'; if (!seconds) { clearInterval(resendTimer); button.disabled = false; } }, 1000); }
@@ -368,7 +382,7 @@
   }
   function sessionExpired() {
     if (!state.user) return;
-    localStorage.removeItem(TOKEN_KEY); stopChat(); state.user = null; clearInterval(state.pollTimer); closeModal();
+    localStorage.removeItem(TOKEN_KEY); stopChat(); state.user = null; state.telegramLink = null; clearInterval(state.pollTimer); closeModal();
     el.appScreen.classList.add('is-hidden'); el.authScreen.classList.remove('is-hidden'); el.verifyView.classList.add('is-hidden'); el.authView.classList.remove('is-hidden');
     setAuthMode('login'); message(el.authMessage, 'Сессия истекла. Войдите снова.', 'error');
   }
@@ -971,6 +985,56 @@
   }
 
   // ---------- Аккаунт ----------
+  function renderTelegram() {
+    const linked = !!state.user?.telegram_linked;
+    const pending = state.telegramLink && Date.now() < state.telegramLink.expires;
+    $('#telegram-status').textContent = linked ? 'Telegram подключён.' : pending ? 'Ожидаем подтверждения в боте.' : 'Telegram не подключён.';
+    $('#telegram-connect').classList.toggle('is-hidden', linked);
+    $('#telegram-check').classList.toggle('is-hidden', linked || !state.telegramLink);
+    $('#telegram-disconnect').classList.toggle('is-hidden', !linked);
+    $('#telegram-demo-start').classList.toggle('is-hidden', !USE_MOCK_API || linked || !pending);
+    $('#telegram-note').textContent = USE_MOCK_API ? 'Демо-режим: реальные сообщения в Telegram не отправляются.' : pending && !linked ? 'Нажмите Start в открытом боте, затем «Проверить подключение». Ссылка действует ограниченное время.' : 'Уведомления, прочитанные на сайте, в Telegram не дублируются.';
+  }
+  async function connectTelegram(event) {
+    const button = event.currentTarget;
+    const userId = state.user?.id;
+    // Открываем вкладку до await, иначе браузер может заблокировать переход как всплывающее окно.
+    const tab = USE_MOCK_API ? null : window.open('', '_blank');
+    if (tab) tab.opener = null;
+    busy(button, true, 'Подключаем…');
+    try {
+      const link = await request('/user/telegram/link', { method: 'POST' });
+      if (state.user?.id !== userId) { tab?.close(); return; }
+      if (!USE_MOCK_API && (!link.url || !/^https:\/\/t\.me\//.test(link.url))) throw new Error('Сервер вернул некорректную ссылку Telegram.');
+      state.telegramLink = { expires: Date.now() + Number(link.expires_in || 0) * 1000 };
+      if (tab) tab.location.replace(link.url);
+      else if (!USE_MOCK_API) { const a = document.createElement('a'); a.href = link.url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.click(); }
+      renderTelegram();
+      notify(USE_MOCK_API ? 'Демо: имитируйте Start в боте кнопкой ниже.' : 'Нажмите Start в Telegram, затем проверьте подключение.');
+    } catch (error) { tab?.close(); notify(error?.message && error.message !== 'NETWORK' ? error.message : apiError(error), 'error'); }
+    finally { busy(button, false); }
+  }
+  async function checkTelegram(event) {
+    const button = event?.currentTarget;
+    const userId = state.user?.id;
+    if (button) busy(button, true, 'Проверяем…');
+    try {
+      const user = await request('/user/me');
+      if (state.user?.id !== userId) return;
+      state.user = user;
+      if (state.user.telegram_linked) state.telegramLink = null;
+      if (state.page === 'profile' && $('#telegram-status')) renderTelegram();
+      notify(state.user.telegram_linked ? 'Telegram подключён.' : 'Пока не подключено. Нажмите Start в боте и повторите проверку.', state.user.telegram_linked ? 'success' : 'error');
+    } catch (error) { notify(apiError(error), 'error'); }
+    finally { if (button) busy(button, false); }
+  }
+  async function disconnectTelegram(event) {
+    if (!await confirmDialog('Отключить уведомления в Telegram?')) return;
+    const button = event.currentTarget; busy(button, true);
+    try { await request('/user/telegram', { method: 'DELETE' }); state.user = await request('/user/me'); state.telegramLink = null; if (state.page === 'profile' && $('#telegram-status')) renderTelegram(); notify('Telegram отключён.'); }
+    catch (error) { notify(apiError(error), 'error'); }
+    finally { busy(button, false); }
+  }
   function renderProfile() {
     const user = state.user; const avatar = avatarImage();
     el.pageContent.innerHTML = `<div class="card profile-card avatar-card"><button class="photo-zoom-trigger avatar-large profile-avatar" type="button" data-action="zoom-avatar" title="Открыть фото крупнее" aria-label="Открыть аватар крупнее">${avatar ? `<img src="${escapeHtml(avatar)}" alt="Аватар">` : escapeHtml(userInitial())}</button><div><h2>Аватар</h2><p class="muted">JPEG, PNG или WebP до 5 МБ. Нажмите на фото, чтобы открыть его крупнее.</p><div class="pet-profile-actions"><label class="outline-button file-button">${avatar ? 'Заменить фото' : 'Загрузить фото'}<input id="avatar-input" type="file" accept="image/jpeg,image/png,image/webp"></label>${avatar ? `<button class="icon-button danger" type="button" id="avatar-remove" title="Удалить аватар" aria-label="Удалить аватар">${icon('trash')}</button>` : ''}</div></div></div>
@@ -980,8 +1044,15 @@
       <div class="field"><label for="profile-phone">Телефон</label><input id="profile-phone" name="phone_number" type="tel" autocomplete="tel" placeholder="+79990000000" value="${escapeHtml(user.phone_number || '')}"></div>
       <div class="field"><label for="profile-new-password">Новый пароль</label><input id="profile-new-password" name="new_passwd" type="password" autocomplete="new-password" placeholder="Оставьте пустым, чтобы не менять"></div>
       <div class="field"><label for="profile-password">Текущий пароль *</label><input id="profile-password" name="passwd" type="password" autocomplete="current-password" placeholder="Для подтверждения изменений"></div>
-      <button class="primary-button" type="submit">Сохранить данные</button></form><div class="account-danger"><h3>Удаление аккаунта</h3><p class="muted">Аккаунт, питомцы и записи, которыми больше никто не владеет, будут удалены без возможности восстановления.</p><button class="danger-button" type="button" data-action="delete-account">Удалить аккаунт</button></div></div>`;
+      <button class="primary-button" type="submit">Сохранить данные</button></form></div>
+      <div class="card profile-card telegram-profile-card"><h2>Telegram-уведомления</h2><p class="muted">Получайте напоминания и поздравления с днём рождения питомца в Telegram.</p><p id="telegram-status" role="status"></p><div class="pet-profile-actions"><button id="telegram-connect" class="outline-button" type="button">Подключить Telegram</button><button id="telegram-check" class="outline-button" type="button">Проверить подключение</button><button id="telegram-disconnect" class="danger-button" type="button">Отключить Telegram</button><button id="telegram-demo-start" class="outline-button" type="button">Имитировать Start в боте</button></div><p id="telegram-note" class="muted small-note"></p></div>
+      <div class="card profile-card account-danger"><h3>Удаление аккаунта</h3><p class="muted">Аккаунт, питомцы и записи, которыми больше никто не владеет, будут удалены без возможности восстановления.</p><button class="danger-button" type="button" data-action="delete-account">Удалить аккаунт</button></div>`;
     $('#profile-form').addEventListener('submit', updateProfile);
+    renderTelegram();
+    $('#telegram-connect').addEventListener('click', connectTelegram);
+    $('#telegram-check').addEventListener('click', checkTelegram);
+    $('#telegram-disconnect').addEventListener('click', disconnectTelegram);
+    $('#telegram-demo-start').addEventListener('click', async (event) => { const button = event.currentTarget; busy(button, true); try { await request('/user/telegram/demo-start', { method: 'POST' }); await checkTelegram(); } catch (error) { notify(apiError(error), 'error'); } finally { busy(button, false); } });
     $('#avatar-input').addEventListener('change', async (event) => {
       const file = event.target.files[0]; if (!file) return;
       if (!PHOTO_TYPES.includes(file.type)) return notify('Подойдут только JPEG, PNG или WebP.', 'error');
@@ -1136,6 +1207,22 @@
   $('#sidebar-toggle').addEventListener('click', () => setSidebarCollapsed(!el.appScreen.classList.contains('sidebar-collapsed')));
   setSidebarCollapsed(localStorage.getItem('petcare_sidebar_collapsed') === '1');
   $$('.tab').forEach((tab) => tab.addEventListener('click', () => setAuthMode(tab.dataset.mode)));
+  $('#test-login-button').addEventListener('click', () => {
+    if (el.authSubmit.disabled) return;
+    const account = TEST_ACCOUNTS[Number($('#test-account').value)];
+    if (!account) return;
+    const [name, email] = account;
+    if (USE_MOCK_API) {
+      const store = mockStore();
+      if (!store.users[email]) {
+        store.users[email] = { id: store.nextId++, name, email, passwd: TEST_PASSWORD, email_verified: true, token: `mock-demo-${name}` };
+        saveMock(store);
+      }
+    }
+    el.authEmail.value = email;
+    el.authPassword.value = TEST_PASSWORD;
+    el.authForm.requestSubmit();
+  });
   $('.password-toggle').addEventListener('click', (event) => { const visible = el.authPassword.type === 'text'; el.authPassword.type = visible ? 'password' : 'text'; event.currentTarget.textContent = visible ? 'Показать' : 'Скрыть'; });
   $('#back-to-auth').addEventListener('click', () => { el.verifyView.classList.add('is-hidden'); el.authView.classList.remove('is-hidden'); });
   $('#logout-button').addEventListener('click', () => { localStorage.removeItem(TOKEN_KEY); location.reload(); });

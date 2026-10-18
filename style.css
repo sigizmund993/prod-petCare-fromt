@@ -258,6 +258,7 @@ body.modal-open{overflow:hidden}
 .user-menu-item.danger:hover{background:#fcecec}
 
 /* Аватар в аккаунте */
+.community-filters{display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin-bottom:22px}.community-filters .field{flex:1 1 260px;margin-bottom:0}.community-filters .checkbox-row{display:flex;align-items:center;gap:8px;padding-bottom:10px}.community-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:16px}.community-card{display:flex;flex-direction:column;min-height:180px}.community-card h3{margin:0 0 8px}.community-card p{overflow-wrap:anywhere}.community-card-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:auto}.community-detail{max-width:760px}.community-detail h3{margin-top:30px}.community-description{white-space:pre-wrap;overflow-wrap:anywhere}.community-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}.community-members{padding:0;list-style:none}.community-members li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
 .avatar-card{display:flex;gap:20px;align-items:center;margin-bottom:18px}
 .avatar-card h2{margin:0 0 4px}
 .avatar-card p{margin:0 0 12px}

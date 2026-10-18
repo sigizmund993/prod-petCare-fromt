@@ -47,6 +47,7 @@
     'Pet not found': 'Питомец не найден — возможно, он уже удалён.',
     'Prop not found': 'Запись не найдена — возможно, она уже удалена.',
     'Notification not found': 'Уведомление уже прочитано.',
+    'Community not found': 'Сообщество не найдено — возможно, оно уже удалено.',
     'Not authenticated': 'Нужно войти в аккаунт.',
     'User not found': 'Пользователь не найден.',
   };
@@ -56,6 +57,7 @@
     editingPet: null, editingProp: null, editingDate: null, selectedPet: null, avatarPet: null, photoUrls: {}, pollTimer: null, confirmResolve: null,
     healthPet: '', healthTab: 'all', foodPet: '', foodLiked: '', foodSuitable: '', remindersPet: '', remindersType: '', remindersDate: '',
     procedureView: 'list', calendarMonth: new Date(now.getFullYear(), now.getMonth(), 1), calendarSelectedDate: '',
+    communities: [], communityQuery: '', communityMine: false, communityId: null, communityMembers: [], communityLoading: false, communityError: '', communityVersion: 0,
   };
   const $ = (selector) => document.querySelector(selector);
   const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -127,7 +129,7 @@
   }
 
   // ---------- Демо-режим (?demo=1): имитация API в localStorage ----------
-  function mockStore() { const store = JSON.parse(localStorage.getItem('petcare_mock_store') || '{"users":{},"pets":[],"props":[]}'); store.reads ||= {}; store.birthdayReads ||= {}; store.nextId ||= Math.max(100, ...store.pets.map((p) => p.id), ...store.props.map((p) => p.id)) + 1; return store; }
+  function mockStore() { const store = JSON.parse(localStorage.getItem('petcare_mock_store') || '{"users":{},"pets":[],"props":[]}'); store.reads ||= {}; store.birthdayReads ||= {}; store.communities ||= []; store.nextId ||= Math.max(100, ...store.pets.map((p) => p.id), ...store.props.map((p) => p.id), ...store.communities.map((c) => c.id)) + 1; return store; }
   function saveMock(store) { localStorage.setItem('petcare_mock_store', JSON.stringify(store)); }
   function mockApi(path, options = {}) { return new Promise((resolve, reject) => setTimeout(() => { try { resolve(mockHandle(path, options)); } catch (error) { reject(error); } }, 80)); }
   function mockHandle(path, options) {
@@ -141,7 +143,7 @@
     if (route === '/user/login') { const u = byEmail(body.email); if (!u || u.passwd !== body.passwd) fail(401, 'Invalid credentials'); if (!(u.email_verified ?? u.verified)) fail(403, 'Email not verified'); return { access_token: u.token, token_type: 'bearer' }; }
     const token = localStorage.getItem(TOKEN_KEY); const user = Object.values(store.users).find((u) => u.token === token);
     if (!user) fail(401, 'Not authenticated');
-    if (route === '/user/del' && method === 'DELETE') { delete store.users[user.email]; store.pets = store.pets.filter((p) => !(p.own_ids || []).includes(user.id)); store.props = store.props.filter((p) => !(p.own_ids || []).includes(user.id)); saveMock(store); return null; }
+    if (route === '/user/del' && method === 'DELETE') { delete store.users[user.email]; store.pets = store.pets.filter((p) => !(p.own_ids || []).includes(user.id)); store.props = store.props.filter((p) => !(p.own_ids || []).includes(user.id)); store.communities.forEach((c) => { c.member_ids = c.member_ids.filter((id) => id !== user.id); if (c.owner_id === user.id) c.owner_id = c.member_ids[0]; }); store.communities = store.communities.filter((c) => c.member_ids.length); saveMock(store); return null; }
     const mine = (item) => (item.own_ids || []).includes(user.id);
     const findPet = (id) => store.pets.find((p) => p.id === Number(id) && mine(p)) || fail(404, 'Pet not found');
     const findProp = (id) => store.props.find((p) => p.id === Number(id) && mine(p)) || fail(404, 'Prop not found');
@@ -159,6 +161,24 @@
     };
     if (route === '/user/me') return publicUser(user);
     if (route === '/user/edit') { if (body.phone_number && Object.values(store.users).some((u) => u !== user && u.phone_number === body.phone_number)) fail(409, 'Phone number already registered'); if (body.email !== user.email) { if (byEmail(body.email)) fail(409, 'Email already registered'); delete store.users[user.email]; store.users[body.email] = user; user.email_verified = false; } Object.assign(user, { name: body.name, email: body.email, phone_number: body.phone_number || null, passwd: body.passwd }); saveMock(store); return publicUser(user); }
+    const findCommunity = () => store.communities.find((c) => c.id === Number(q.get('community_id'))) || fail(404, 'Community not found');
+    if (route === '/community/list') return store.communities.filter((c) => (!q.has('q') || c.name.toLowerCase().includes(q.get('q').toLowerCase())) && (q.get('mine') !== 'true' || c.member_ids.includes(user.id))).sort((a, b) => a.id - b.id);
+    if (route === '/community/add' || route === '/community/edit') {
+      const item = route === '/community/edit' ? findCommunity() : null;
+      if (item && item.owner_id !== user.id) fail(403, 'Not community owner');
+      const name = String(body.name || '').trim();
+      if (!name || name.length > 100) fail(422, [{ loc: ['body', 'name'], msg: 'Название должно содержать от 1 до 100 символов.' }]);
+      const saved = item || { id: store.nextId++, owner_id: user.id, member_ids: [user.id], created_at: new Date().toISOString() };
+      Object.assign(saved, { name, description: body.description || null });
+      if (!item) store.communities.push(saved);
+      saveMock(store); return saved;
+    }
+    if (route === '/community/get') return findCommunity();
+    if (route === '/community/members') { const c = findCommunity(); return c.member_ids.map((id) => Object.values(store.users).find((u) => u.id === id)).filter(Boolean).map((u) => ({ id: u.id, name: u.name })); }
+    if (route === '/community/join') { const c = findCommunity(); if (!c.member_ids.includes(user.id)) c.member_ids.push(user.id); saveMock(store); return c; }
+    if (route === '/community/leave') { const c = findCommunity(); if (!c.member_ids.includes(user.id)) fail(403, 'Not community member'); c.member_ids = c.member_ids.filter((id) => id !== user.id); if (c.owner_id === user.id) c.owner_id = c.member_ids[0]; if (!c.member_ids.length) store.communities = store.communities.filter((item) => item !== c); saveMock(store); return null; }
+    if (route === '/community/kick') { const c = findCommunity(); if (c.owner_id !== user.id) fail(403, 'Not community owner'); const id = Number(q.get('member_id')); if (id === user.id) fail(400, 'Cannot kick yourself'); if (!c.member_ids.includes(id)) fail(404, 'Member not found'); c.member_ids = c.member_ids.filter((member) => member !== id); saveMock(store); return null; }
+    if (route === '/community/del') { const c = findCommunity(); if (c.owner_id !== user.id) fail(403, 'Not community owner'); store.communities = store.communities.filter((item) => item !== c); saveMock(store); return null; }
     if (route === '/pet/list') return store.pets.filter(mine).sort((a, b) => a.id - b.id);
     if (route === '/pet/get') return findPet(q.get('pet_id'));
     if (route === '/pet/add') { validatePet(); const item = { id: store.nextId++, name: body.name, type: body.type ?? null, breed: body.breed ?? null, birth_date: body.birth_date ?? null, own_ids: withOwner(body.own_ids), prop_ids: body.prop_ids || [], has_picture: false }; store.pets.push(item); saveMock(store); return item; }
@@ -419,15 +439,84 @@
   // ---------- Страницы ----------
   function navigate(page, options = {}) { state.page = page; state.selectedPet = options.selectedPet ?? null; if (options.healthPet !== undefined) state.healthPet = options.healthPet; if (options.foodPet !== undefined) state.foodPet = options.foodPet; renderPage(); window.scrollTo?.(0, 0); }
   function renderPage() {
-    const titles = { dashboard: 'Обзор', pets: 'Мои питомцы', health: 'Карта здоровья', food: 'Питание', reminders: 'Напоминания', profile: 'Аккаунт' };
+    const titles = { dashboard: 'Обзор', pets: 'Мои питомцы', health: 'Карта здоровья', food: 'Питание', reminders: 'Напоминания', communities: 'Сообщества', profile: 'Аккаунт' };
     if (!titles[state.page]) state.page = 'dashboard';
     el.pageTitle.textContent = titles[state.page];
     $$('.nav-link').forEach((link) => link.classList.toggle('is-active', link.dataset.page === state.page));
-    ({ dashboard: renderDashboard, pets: renderPets, health: renderHealth, food: renderFood, reminders: renderReminders, profile: renderProfile })[state.page]();
+    ({ dashboard: renderDashboard, pets: renderPets, health: renderHealth, food: renderFood, reminders: renderReminders, communities: renderCommunities, profile: renderProfile })[state.page]();
   }
   function petOptions(selected, emptyLabel) { return `<option value="">${emptyLabel}</option>${state.pets.map((p) => `<option value="${p.id}" ${String(selected) === String(p.id) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}`; }
   function bindSelect(id, apply) { $(`#${id}`)?.addEventListener('change', (event) => { apply(event.target.value); renderPage(); }); }
   function quickActions(petId = '') { return `<div class="quick-actions">${['vaccination', 'parasites', 'vet_visit', 'medication'].map((c) => `<button class="outline-button" data-action="add-record" data-category="${c}" data-pet="${petId}">${icon(CATEGORIES[c].icon)} ${{ vaccination: 'Прививка', parasites: 'Обработка', vet_visit: 'Визит', medication: 'Препарат' }[c]}</button>`).join('')}<button class="outline-button" data-action="add-food" data-pet="${petId}">${icon('bowl')} Корм</button></div>`; }
+
+  // ---------- Сообщества ----------
+  function communityPath(action, id) { return `/community/${action}?community_id=${encodeURIComponent(id)}`; }
+  async function loadCommunities() {
+    const version = ++state.communityVersion;
+    state.communityLoading = true; state.communityError = ''; renderCommunities();
+    try {
+      const params = new URLSearchParams();
+      if (state.communityQuery.trim()) params.set('q', state.communityQuery.trim());
+      if (state.communityMine) params.set('mine', 'true');
+      const list = await request(`/community/list${params.size ? `?${params}` : ''}`);
+      if (version !== state.communityVersion) return;
+      state.communities = list; state.communityMembers = [];
+      if (state.communityId !== null) {
+        try {
+          const community = await request(communityPath('get', state.communityId));
+          const members = await request(communityPath('members', state.communityId));
+          if (version !== state.communityVersion) return;
+          state.communities = [...list.filter((c) => c.id !== community.id), community]; state.communityMembers = members;
+        } catch (error) {
+          if (version !== state.communityVersion) return;
+          if (error?.status !== 404) throw error;
+          state.communityId = null; notify(apiError(error), 'error');
+        }
+      }
+    } catch (error) { if (version === state.communityVersion) state.communityError = apiError(error); }
+    finally { if (version === state.communityVersion) { state.communityLoading = false; if (state.page === 'communities') renderCommunities(); } }
+  }
+  function renderCommunities() {
+    if (state.page !== 'communities') return;
+    const selected = state.communities.find((c) => c.id === state.communityId);
+    const mine = (c) => c.member_ids.includes(state.user.id);
+    const owner = (c) => c.owner_id === state.user.id;
+    el.pageContent.innerHTML = `<div class="section-title"><div><h2>Сообщества по интересам</h2><p class="muted section-subtitle">Найдите единомышленников или создайте своё сообщество.</p></div><button class="primary-button compact-button" id="community-create" type="button">+ Создать</button></div>
+      <form id="community-search" class="community-filters"><div class="field"><label for="community-query">Поиск по названию</label><input id="community-query" name="q" value="${escapeHtml(state.communityQuery)}" placeholder="Например, любители кошек"></div><button class="outline-button" type="submit">Найти</button><label class="checkbox-row"><input id="community-mine" type="checkbox" ${state.communityMine ? 'checked' : ''}> Только мои</label></form>
+      ${state.communityError ? `<div class="message is-visible error" role="alert">${escapeHtml(state.communityError)} <button id="community-retry" type="button">Повторить</button></div>` : ''}
+      ${state.communityLoading ? '<p class="muted" role="status">Загружаем сообщества…</p>' : selected ? `<div class="community-detail card"><button class="back-button" id="community-back" type="button">← К списку</button><div class="section-title"><h2>${escapeHtml(selected.name)}</h2><span class="muted">${selected.member_ids.length} ${plural(selected.member_ids.length, ['участник', 'участника', 'участников'])}</span></div><p class="community-description">${selected.description ? escapeHtml(selected.description) : 'Описание не добавлено.'}</p><p class="muted">${owner(selected) ? 'Вы владелец' : mine(selected) ? 'Вы участник' : 'Вы ещё не участник'} · Создано ${escapeHtml(formatDate(selected.created_at, false))}</p><div class="community-actions">${owner(selected) ? `<button class="outline-button" id="community-edit" type="button">Редактировать</button><button class="danger-button" id="community-delete" type="button">Удалить</button>` : ''}${mine(selected) ? '<button class="outline-button" id="community-leave" type="button">Выйти</button>' : '<button class="primary-button compact-button" id="community-join" type="button">Вступить</button>'}</div><h3>Участники</h3><ul class="community-members">${state.communityMembers.map((m) => `<li><span>${escapeHtml(m.name)}${m.id === selected.owner_id ? ' · владелец' : ''}${m.id === state.user.id ? ' · вы' : ''}</span>${owner(selected) && m.id !== state.user.id ? `<button class="danger-button" type="button" data-kick="${m.id}">Исключить</button>` : ''}</li>`).join('')}</ul></div>` : `<div class="community-grid">${state.communities.length ? state.communities.map((c) => `<article class="card community-card"><h3>${escapeHtml(c.name)}</h3><p class="muted">${c.description ? escapeHtml(c.description) : 'Описание не добавлено.'}</p><div class="community-card-footer"><span class="muted">${c.member_ids.length} ${plural(c.member_ids.length, ['участник', 'участника', 'участников'])}${mine(c) ? ' · Вы участник' : ''}</span><button class="outline-button" type="button" data-community="${c.id}">Подробнее</button></div></article>`).join('') : '<div class="empty-state">Сообществ не найдено. Попробуйте другой запрос или создайте своё.</div>'}</div>`}`;
+    $('#community-create').addEventListener('click', () => communityForm());
+    $('#community-search').addEventListener('submit', (event) => { event.preventDefault(); state.communityQuery = $('#community-query').value; state.communityId = null; loadCommunities(); });
+    $('#community-mine').addEventListener('change', (event) => { state.communityMine = event.target.checked; state.communityQuery = $('#community-query').value; state.communityId = null; loadCommunities(); });
+    $('#community-retry')?.addEventListener('click', loadCommunities);
+    $$('[data-community]').forEach((b) => b.addEventListener('click', () => { state.communityId = Number(b.dataset.community); loadCommunities(); }));
+    $('#community-back')?.addEventListener('click', () => { state.communityId = null; state.communityVersion++; state.communityLoading = false; renderCommunities(); });
+    $('#community-edit')?.addEventListener('click', () => communityForm(selected));
+    $('#community-join')?.addEventListener('click', (event) => communityAction(event.currentTarget, 'join', selected.id, 'Вы вступили в сообщество'));
+    $('#community-leave')?.addEventListener('click', async (event) => {
+      const button = event.currentTarget;
+      if (!await confirmDialog(owner(selected) ? 'После выхода управление сообществом перейдёт первому из оставшихся участников. Если вы последний участник, сообщество удалится.' : 'Выйти из сообщества?', 'Выйти')) return;
+      await communityAction(button, 'leave', selected.id, 'Вы вышли из сообщества', true);
+    });
+    $('#community-delete')?.addEventListener('click', async (event) => { const button = event.currentTarget; if (await confirmDialog(`Сообщество «${selected.name}» и все его сообщения будут удалены.`)) await communityAction(button, 'del', selected.id, 'Сообщество удалено', true, 'DELETE'); });
+    $$('[data-kick]').forEach((b) => b.addEventListener('click', async () => { const member = state.communityMembers.find((m) => m.id === Number(b.dataset.kick)); if (!member || !await confirmDialog(`Исключить участника «${member.name}» из сообщества?`, 'Исключить')) return; await communityAction(b, 'kick', selected.id, 'Участник исключён', false, 'POST', `&member_id=${member.id}`); }));
+  }
+  async function communityAction(button, action, id, success, back = false, method = 'POST', suffix = '') {
+    busy(button, true, 'Подождите…');
+    try { await request(communityPath(action, id) + suffix, { method }); if (back) state.communityId = null; await loadCommunities(); notify(success); }
+    catch (error) { notify(apiError(error), 'error'); busy(button, false); }
+  }
+  function communityForm(community = null) {
+    openModal(`<h2>${community ? 'Редактировать сообщество' : 'Новое сообщество'}</h2><form id="community-form" novalidate><div class="field"><label for="community-name">Название *</label><input id="community-name" name="name" maxlength="100" value="${escapeHtml(community?.name || '')}" placeholder="Например, любители котов"></div><div class="field"><label for="community-description">Описание</label><textarea id="community-description" name="description" placeholder="О чём ваше сообщество?">${escapeHtml(community?.description || '')}</textarea></div><div class="form-actions"><button class="secondary-button" type="button" data-close-modal>Отмена</button><button class="primary-button" type="submit">${community ? 'Сохранить' : 'Создать'}</button></div></form>`);
+    $('#community-form').addEventListener('submit', async (event) => {
+      event.preventDefault(); const form = event.target; const data = new FormData(form); const name = String(data.get('name') || '').trim();
+      if (!showErrors(form, !name || name.length > 100 ? [['name', 'Название должно содержать от 1 до 100 символов.']] : [])) return;
+      const button = form.querySelector('[type="submit"]'); busy(button, true);
+      try { const saved = await request(community ? communityPath('edit', community.id) : '/community/add', { method: community ? 'PUT' : 'POST', body: { name, description: String(data.get('description') || '').trim() || null } }); closeModal(); state.communityId = saved.id; await loadCommunities(); notify(community ? 'Сообщество обновлено' : 'Сообщество создано'); }
+      catch (error) { if (!applyApiFieldErrors(form, error)) notify(apiError(error), 'error'); busy(button, false); }
+    });
+    $('#community-name').focus();
+  }
 
   function renderDashboard() {
     const selected = state.selectedPet; const next = upcomingEvents(selected).slice(0, 8); const count = Math.max(1, state.pets.length); const selectedPet = state.pets.find((p) => p.id === selected);
@@ -891,7 +980,8 @@
     all('[data-calendar-date]').forEach((b) => b.addEventListener('click', () => { state.calendarSelectedDate = b.dataset.calendarDate; updateProcedureOutput(); $('.calendar-selected-day')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }));
   }
   function clearFieldError(event) { const field = event.target.closest?.('.has-error'); if (field) { field.classList.remove('has-error'); field.querySelector('.field-error')?.remove(); } }
-  $$('[data-page]').forEach((b) => b.addEventListener('click', () => navigate(b.dataset.page)));
+  $('.sidebar nav').insertAdjacentHTML('beforeend', `<button class="nav-link" data-page="communities" type="button">${icon('user')}<span>Сообщества</span></button>`);
+  $$('[data-page]').forEach((b) => b.addEventListener('click', () => { navigate(b.dataset.page); if (b.dataset.page === 'communities') loadCommunities(); }));
   $('#bell-button').addEventListener('click', openNotifications);
   // Меню аккаунта справа сверху: «Аккаунт» и «Выйти»
   function toggleUserMenu(open) { $('#user-menu').classList.toggle('is-hidden', !open); $('#user-menu-button').setAttribute('aria-expanded', String(open)); }

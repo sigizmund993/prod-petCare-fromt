@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>PetCare — тесты фронтенда</title>
+  <style>
+    body{margin:0;font-family:Arial,sans-serif;background:#f7f8f3;color:#1d2924}
+    header{display:flex;gap:16px;align-items:center;padding:16px 24px;color:#fff;background:#1d493b}
+    header h1{margin:0;font-size:20px}
+    #summary{font-weight:700}
+    button{padding:8px 14px;border:0;border-radius:8px;color:#1d493b;background:#fff;font-weight:700;cursor:pointer}
+    main{display:grid;grid-template-columns:minmax(320px,1fr) 1fr;gap:16px;padding:16px 24px}
+    #results{margin:0;padding:0;list-style:none}
+    #results li{padding:7px 10px;border-bottom:1px solid #dce5de;font-size:14px}
+    #results li.pass::before{content:'✅ '}
+    #results li.fail{color:#a53e3e;background:#fcecec}
+    #results li.fail::before{content:'❌ '}
+    #results li.group{margin-top:10px;border:0;color:#1d493b;font-weight:700}
+    #results small{display:block;margin-top:3px;color:#a53e3e}
+    iframe{width:100%;height:80vh;border:1px solid #dce5de;border-radius:10px;background:#fff}
+    @media(max-width:900px){main{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <header><h1>PetCare — тесты фронтенда</h1><span id="summary">Запуск…</span><button id="rerun" type="button">Перезапустить</button></header>
+  <main><ul id="results"></ul><iframe id="app" title="Приложение под тестом"></iframe></main>
+  <script src="tests.js"></script>
+</body>
+</html>

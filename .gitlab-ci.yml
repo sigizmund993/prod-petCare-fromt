@@ -6,6 +6,8 @@ stages:
 variables:
   APP_NAME: petcare-frontend
   APP_FILES: "index.html style.css script.js petcare-icon.jpg icons.svg Dockerfile nginx.conf"
+  # Домен ВМ, который выдал Spirit (карточка ВМ → FQDN). Он же прописан в nginx.conf
+  DOMAIN: hack-led-19-vm1-fe90ec.vmaas-spirit.t-education.com
 
 lint:
   stage: test
@@ -40,6 +42,10 @@ deploy:
     - chmod 600 "$DEPLOY_KEY"
     - SSH_OPTS="-i $DEPLOY_KEY -o StrictHostKeyChecking=no"
   script:
+    # Без сертификата nginx не запустится и сайт ляжет, поэтому старый контейнер не трогаем
+    - |
+      ssh $SSH_OPTS "$DEPLOY_USER@$DEPLOY_HOST" "sudo test -f /etc/letsencrypt/live/$DOMAIN/fullchain.pem" || {
+        echo "На ВМ нет сертификата для $DOMAIN. Выпустите его certbot (README, раздел HTTPS) и перезапустите деплой"; exit 1; }
     - ssh $SSH_OPTS "$DEPLOY_USER@$DEPLOY_HOST" "rm -rf ~/$APP_NAME && mkdir -p ~/$APP_NAME"
     - scp $SSH_OPTS -r dist/. "$DEPLOY_USER@$DEPLOY_HOST:~/$APP_NAME/"
     - >
@@ -47,5 +53,6 @@ deploy:
       "cd ~/$APP_NAME &&
       sudo docker build -t $APP_NAME . &&
       (sudo docker rm -f $APP_NAME || true) &&
-      sudo docker run -d --name $APP_NAME --restart unless-stopped --network app_app_network -p 80:80 $APP_NAME"
-    - echo "Задеплоено на http://$DEPLOY_HOST"
+      sudo docker run -d --name $APP_NAME --restart unless-stopped --network app_app_network
+      -p 80:80 -p 443:443 -v /etc/letsencrypt:/etc/letsencrypt:ro $APP_NAME"
+    - echo "Задеплоено на https://$DOMAIN"

@@ -40,3 +40,24 @@ python -m http.server 5500
 ## Деплой
 
 Пайплайн в `.gitlab-ci.yml`: `lint` → `build` → `deploy`. Деплой запускается в ветке `master` и требует CI-переменных `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_KEY` (тип File).
+
+Сайт: **https://hack-led-19-vm1-fe90ec.vmaas-spirit.t-education.com** (домен выдаёт Spirit, карточка ВМ → FQDN). HTTP перенаправляется на HTTPS.
+
+## HTTPS
+
+Сертификат Let's Encrypt лежит на ВМ в `/etc/letsencrypt`, контейнер nginx монтирует его только для чтения. Без сертификата nginx не запустится, поэтому деплой сначала проверяет, что он есть.
+
+Выпустить сертификат (один раз, на ВМ):
+
+```bash
+sudo apt-get update && sudo apt-get install -y certbot
+sudo certbot certonly --standalone \
+  -d hack-led-19-vm1-fe90ec.vmaas-spirit.t-education.com \
+  -m <почта для уведомлений> --agree-tos -n \
+  --pre-hook  "docker stop petcare-frontend" \
+  --post-hook "docker start petcare-frontend"
+```
+
+Certbot сам занимает порт 80 на время проверки, поэтому хуки останавливают и снова запускают nginx. Хуки сохраняются, и systemd-таймер certbot продлевает сертификат автоматически (простой сайта — несколько секунд раз в ~60 дней). Проверить продление: `sudo certbot renew --dry-run`.
+
+Если домен ВМ сменится, поменяйте его в `nginx.conf` (все вхождения) и в переменной `DOMAIN` в `.gitlab-ci.yml`.
